@@ -37,57 +37,69 @@ const APP_VERSION = "v1B";
 // into decoration. Light mode is the daylight reading of the same idea.
 const PALETTES = {
   dark: {
-    bg: "#12100E",
-    card: "#1B1815",
-    cardUp: "#18201A",
-    cardDown: "#211714",
-    line: "#2C2721",
-    ink: "#EDE6DA",
-    inkSoft: "#A39A8C",
-    heading: "#F2ECDF",
-    header: "#0C0B09",
-    brass: "#C9A24B",
-    brassSoft: "#2A2313",
-    up: "#5FA97C",
-    down: "#CE6F5C",
-    neutral: "#97A0B0",
-    neutralSoft: "#1C1F26",
-    amber: "#D2A254",
-    amberSoft: "#2A2110",
-    tabIdle: "#7A7264",
-    field: "#161310",
-    btn2: "#242019",
-    onAccent: "#14110C",
-    disabled: "#3A362E",
-    onDisabled: "#8D8678"
+    bg: "#0E1526",
+    card: "#16203A",
+    // Directional tints stay inside the navy family: a card should read as
+    // "this one leaned up" at a glance without turning into a green box.
+    cardUp: "#152A2E",
+    cardDown: "#2A1C24",
+    line: "#253253",
+    ink: "#E8ECF6",
+    inkSoft: "#9AA6C2",
+    heading: "#F2F5FC",
+    header: "#080D1A",
+    brass: "#D4AC55",
+    brassSoft: "#1C2440",
+    up: "#5FBF8F",
+    down: "#E4796A",
+    neutral: "#8FA0C4",
+    neutralSoft: "#182137",
+    amber: "#D9B45F",
+    amberSoft: "#241E10",
+    tabIdle: "#7A88A8",
+    field: "#111930",
+    btn2: "#1B2540",
+    onAccent: "#0B1224",
+    disabled: "#2E3A5C",
+    onDisabled: "#A2ACC6"
   },
   light: {
-    bg: "#F5F1E8",
+    bg: "#F2F4F9",
     card: "#FFFFFF",
-    cardUp: "#F0F6F1",
-    cardDown: "#F9F0ED",
-    line: "#E2DCCE",
-    ink: "#241F17",
-    inkSoft: "#6E6759",
-    heading: "#1C170F",
-    header: "#171310",
-    brass: "#94742A",
-    brassSoft: "#F1E8D2",
+    cardUp: "#EDF6F0",
+    cardDown: "#FBEFEC",
+    line: "#D9DFEC",
+    ink: "#1A2340",
+    inkSoft: "#5B678A",
+    heading: "#141C33",
+    // The header bar is navy in BOTH themes. It is the brand, and a brand
+    // that changes colour with the phone's appearance setting is not one.
+    header: "#141A33",
+    // Gold on white needs to be darker than gold on navy or it disappears.
+    brass: "#8F701E",
+    brassSoft: "#F4ECD6",
     up: "#2E7D53",
-    down: "#A94A38",
-    neutral: "#5A6474",
-    neutralSoft: "#EDF0F4",
-    amber: "#8F6516",
-    amberSoft: "#F7ECD4",
-    tabIdle: "#B9B2A2",
+    down: "#B04A38",
+    neutral: "#556180",
+    neutralSoft: "#EDF0F7",
+    amber: "#8A6714",
+    amberSoft: "#FAF0D8",
+    // Tab labels sit on the navy header in both themes, so the idle colour
+    // must stay light here rather than following the page.
+    tabIdle: "#8794B4",
     field: "#FFFFFF",
-    btn2: "#F4F0E6",
-    onAccent: "#FFFCF4",
-    disabled: "#CFC9BB",
-    onDisabled: "#57524A"
+    btn2: "#EDF0F7",
+    onAccent: "#FFFFFF",
+    disabled: "#C6CDDD",
+    onDisabled: "#4A5470"
   }
 };
 let T = PALETTES.dark;
+
+// The header bar is navy in both themes, so anything drawn on it reads from
+// this fixed pair rather than from T. Otherwise light mode paints the dark
+// on-white gold onto a navy bar, where it vanishes.
+const HDR = { gold: "#D4AC55", idle: "#8B99BC" };
 
 const THEMES = [
   { id: "auto", label: "Follow the phone" },
@@ -691,20 +703,20 @@ function App() {
 
     // Header: compass mark, brand, settings cog. Same bones as Estate File,
     // different instrument on the flag pole.
-    h("div", { style: { background: T.header, color: "#EDE6DA", padding: "calc(10px + env(safe-area-inset-top)) 16px 0", borderBottom: "2px solid " + T.brass } },
+    h("div", { style: { background: T.header, color: "#EDF1FA", padding: "calc(10px + env(safe-area-inset-top)) 16px 0", borderBottom: "2px solid " + HDR.gold } },
       h("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
-        h("div", { style: { width: 42, height: 42, borderRadius: 999, border: "1.5px solid " + T.brass, display: "flex", alignItems: "center", justifyContent: "center", flex: "0 0 auto" } },
-          h(CompassMark, { size: 27, color: T.brass })),
+        h("div", { style: { width: 42, height: 42, borderRadius: 999, border: "1.5px solid " + HDR.gold, display: "flex", alignItems: "center", justifyContent: "center", flex: "0 0 auto" } },
+          h(CompassMark, { size: 27, color: HDR.gold })),
         h("div", { style: { minWidth: 0, flex: "1 1 auto" } },
           h("div", { style: { fontFamily: font.display, fontWeight: 700, fontSize: "clamp(20px, 6vw, 28px)", lineHeight: 1.05, letterSpacing: -0.25 } }, "Crude Compass"),
-          h("div", { style: { fontFamily: font.body, fontSize: 10.5, fontWeight: 700, letterSpacing: 1.4, color: T.brass, marginTop: 2 } }, "DAILY WTI TREND")),
+          h("div", { style: { fontFamily: font.body, fontSize: 10.5, fontWeight: 700, letterSpacing: 1.4, color: HDR.gold, marginTop: 2 } }, "DAILY WTI TREND")),
         h("button", {
           onClick: function () { setTab("settings"); },
           "aria-label": "Settings", "aria-current": tab === "settings" ? "page" : undefined, title: "Settings",
           style: { marginLeft: "auto", flex: "0 0 auto", cursor: "pointer", width: 44, height: 44, padding: 0,
             background: tab === "settings" ? "rgba(201,162,75,0.14)" : "transparent",
-            border: "1.5px solid " + T.brass, borderRadius: 999, display: "inline-flex", alignItems: "center", justifyContent: "center",
-            color: T.brass, fontFamily: font.body, fontSize: 25, fontWeight: 800, lineHeight: 1 }
+            border: "1.5px solid " + HDR.gold, borderRadius: 999, display: "inline-flex", alignItems: "center", justifyContent: "center",
+            color: HDR.gold, fontFamily: font.body, fontSize: 25, fontWeight: 800, lineHeight: 1 }
         }, h("span", { "aria-hidden": "true", style: { transform: "translateY(-1px)" } }, "\u2699\uFE0E"))),
 
       // Tab strip with the right-edge fade cue, straight from the template.
@@ -718,8 +730,8 @@ function App() {
               style: { flex: "0 0 auto", border: "none", background: "transparent", cursor: "pointer",
                 padding: "14px 2px 11px", fontFamily: font.body, fontSize: 13, letterSpacing: 0.2,
                 fontWeight: tab === tb.id ? 800 : 600,
-                color: tab === tb.id ? T.brass : T.tabIdle,
-                borderBottom: "3px solid " + (tab === tb.id ? T.brass : "transparent") }
+                color: tab === tb.id ? HDR.gold : HDR.idle,
+                borderBottom: "3px solid " + (tab === tb.id ? HDR.gold : "transparent") }
             }, tb.label);
           })),
         h("div", { "aria-hidden": "true", style: { position: "absolute", top: 0, right: -16, width: 26, bottom: 0, pointerEvents: "none",
