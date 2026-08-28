@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Crude Compass — Daily WTI Trend</title>
+<meta name="description" content="Crude Compass: a daily WTI crude oil briefing, event calendar and model lean with its reasoning shown. Decision support, not financial advice." />
+<link rel="manifest" href="manifest.json" />
+<link rel="apple-touch-icon" href="apple-touch-icon.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="theme-color" content="#080D1A" />
+<style>
+  html, body { margin: 0; padding: 0; background: #0E1526; overscroll-behavior-y: none; }
+  * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
+  input, select, button, textarea { font-family: inherit; }
+  button, select { color: inherit; -webkit-appearance: none; appearance: none; }
+  :focus-visible { outline: 2px solid #D4AC55; outline-offset: 2px; }
+  .hscroll { overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; scrollbar-width: none; -ms-overflow-style: none; }
+  .hscroll::-webkit-scrollbar { display: none; height: 0; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<!-- React is bundled locally (vendor/react.js); app.js is plain JavaScript.
+     Nothing is downloaded or interpreted at runtime — same Apple 2.5.2-safe
+     architecture as the Estate File template this app is built on. -->
+<script src="vendor/react.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

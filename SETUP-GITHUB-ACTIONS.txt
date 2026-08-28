@@ -1,0 +1,108 @@
+CRUDE COMPASS — AUTOMATIC DAILY UPDATES VIA GITHUB ACTIONS
+============================================================
+
+WHAT THIS DOES
+--------------
+Every weekday morning, GitHub's own servers run the pipeline for you:
+pull FRED/EIA/CFTC data, produce the locked calibrated call, write
+data.json, and push it back to your repo. Vercel sees the change and
+redeploys automatically. Your Mac does not need to be on.
+
+THE ONE-TIME RESTRUCTURING
+---------------------------
+Your repo currently has the web files loose at the root (index.html,
+app.js, etc. directly there). To add the pipeline code alongside them
+without confusion, both now live in their own folders, mirroring your
+Desktop layout exactly:
+
+  your-repo/
+    web/         <- the app (what Vercel serves)
+    pipeline/    <- the automation code (what GitHub Actions runs)
+    .github/
+      workflows/
+        daily-update.yml
+
+STEP 1 — Upload the new folder structure
+-----------------------------------------
+In your GitHub repo:
+  a) Delete the loose files currently at the root: app.js, index.html,
+     manifest.json, the icon PNGs, data.json, and the vendor folder.
+     (Select them, use the trash/delete option, commit the deletion.)
+  b) Drag the ENTIRE "web" folder from this zip into the repo's upload
+     page. Because it's a folder (not loose files), GitHub keeps it as
+     a "web/" subfolder - the same trick that worked for vendor/ earlier.
+  c) Drag the ENTIRE "pipeline" folder from this zip in the same way.
+     This folder does NOT contain your .env or your local database -
+     both were deliberately left out. It is safe to be public: no key
+     is written anywhere inside these .py files.
+  d) Drag the ".github" folder in too. GitHub will recognize
+     .github/workflows/daily-update.yml automatically - that file IS
+     the automation, nothing further to configure there.
+  e) Commit.
+
+STEP 2 — Add your API keys as encrypted Secrets
+-------------------------------------------------
+In your repo: Settings > Secrets and variables > Actions > "New
+repository secret".
+
+Add two:
+  Name: EIA_API_KEY    Value: <your real EIA key>
+  Name: FRED_API_KEY   Value: <your real FRED key>
+
+These are encrypted at rest, never shown in logs, and never appear
+anywhere in your code or commit history - this is the correct, standard
+place for secrets in a public repo. This replaces the local .env file
+for the automated runs; your local .env on your Mac still works fine
+for running the pipeline by hand if you ever want to.
+
+STEP 3 — Point Vercel at the web/ subfolder
+----------------------------------------------
+Since the app now lives in web/ instead of the repo root, tell Vercel
+where to look:
+  Vercel project > Settings > General > Root Directory > set to "web"
+  > Save > trigger a redeploy (or just wait for the next commit).
+
+STEP 4 — Test it by hand
+---------------------------
+Don't wait until tomorrow morning to find out if it works.
+In your repo: Actions tab > "Daily Crude Compass update" (left side) >
+"Run workflow" button > Run workflow.
+
+Watch it run - takes 1-2 minutes. Click into it to see each step's
+output, identical in shape to what you saw in Terminal. If a step
+fails, the error is the same kind of thing you'd see locally (a red X
+with a log you can read), and you can paste it back for a fix.
+
+If it succeeds, check your repo: web/data.json and pipeline/
+crude_compass.db should show a new commit from "Crude Compass bot".
+Check your live Vercel URL: it should show today's call.
+
+WHAT HAPPENS EVERY MORNING AFTER THIS
+----------------------------------------
+Nothing you need to do. Around 8:00 AM ET on weekdays (see the timing
+note in the workflow file for the winter/summer offset), GitHub:
+  1. Downloads the pipeline code fresh
+  2. Restores your database from the last commit (so the Scoreboard's
+     history keeps accumulating, not resetting each day)
+  3. Refreshes all history, resolves yesterday's open call, locks
+     today's, writes data.json
+  4. Commits both files back
+  5. Vercel notices the commit and redeploys within about a minute
+
+A GENUINE TRADE-OFF, STATED PLAINLY
+--------------------------------------
+The database (pipeline/crude_compass.db) gets committed to a PUBLIC
+git repo every day. It contains only prices, positioning data, and the
+model's call history - all already public information, nothing
+private. But committing a growing binary file to git daily isn't the
+most elegant long-term pattern; it'll bloat the repo's history slowly
+over months. It works fine for a personal project at this scale. If it
+ever bothers you, the fix later is swapping the SQLite file for a
+small external database or a plain append-only JSON log - a clean
+follow-up, not urgent now.
+
+IF SOMETHING FAILS
+---------------------
+Screenshot the red X'd step in the Actions tab and send it over -
+reading a GitHub Actions failure is the same skill as reading a
+Terminal failure, just in a browser instead of a window on your Mac.
