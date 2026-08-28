@@ -4,13 +4,4 @@ on: {schedule: [{cron: '0 12 * * 1-5'}], workflow_dispatch: {}}
 
 permissions: {contents: write}
 
-jobs:
-  update:
-    runs-on: ubuntu-latest
-    steps:
-      - {name: "Check out repo", uses: "actions/checkout@v4"}
-      - {name: "Set up Python", uses: "actions/setup-python@v5", with: {python-version: "3.11"}}
-      - {name: "Install dependencies", working-directory: "pipeline", run: "pip install -r requirements.txt"}
-      - {name: "Refresh history", working-directory: "pipeline", run: "python run.py --backfill", env: {EIA_API_KEY: "${{ secrets.EIA_API_KEY }}", FRED_API_KEY: "${{ secrets.FRED_API_KEY }}"}}
-      - {name: "Produce today's call", working-directory: "pipeline", run: "python run.py --daily", env: {EIA_API_KEY: "${{ secrets.EIA_API_KEY }}", FRED_API_KEY: "${{ secrets.FRED_API_KEY }}"}}
-      - {name: "Commit updated data", run: "git config user.name \"Crude Compass bot\" && git config user.email \"actions@users.noreply.github.com\" && git add web/data.json pipeline/crude_compass.db && (git diff --cached --quiet || git commit -m \"Daily update: $(date -u +%Y-%m-%d)\") && git push"}
+jobs: {update: {runs-on: ubuntu-latest, steps: [{name: 'Check out repo', uses: 'actions/checkout@v4'}, {name: 'Set up Python', uses: 'actions/setup-python@v5', with: {python-version: '3.11'}}, {name: 'Install dependencies', working-directory: 'pipeline', run: 'pip install -r requirements.txt'}, {name: 'Refresh history', working-directory: 'pipeline', run: 'python run.py --backfill', env: {EIA_API_KEY: '${{ secrets.EIA_API_KEY }}', FRED_API_KEY: '${{ secrets.FRED_API_KEY }}'}}, {name: 'Produce daily call', working-directory: 'pipeline', run: 'python run.py --daily', env: {EIA_API_KEY: '${{ secrets.EIA_API_KEY }}', FRED_API_KEY: '${{ secrets.FRED_API_KEY }}'}}, {name: 'Commit updated data', run: 'git config user.name "Crude Compass bot" && git config user.email "actions@users.noreply.github.com" && git add web/data.json pipeline/crude_compass.db && (git diff --cached --quiet || git commit -m "Daily update: $(date -u +%Y-%m-%d)") && git push'}]}}
