@@ -456,11 +456,14 @@ function CalendarScreen() {
             h("div", { style: { fontFamily: font.body, fontSize: 10.5, fontWeight: 800, color: T.brass, letterSpacing: 1 } }, e.day.toUpperCase()),
             h("div", { style: { fontFamily: font.mono, fontSize: 13, fontWeight: 700, color: T.heading } }, e.date)),
           h("div", { style: { minWidth: 0, flex: "1 1 auto" } },
-            h("div", { style: { display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" } },
-              h("span", { style: { fontFamily: font.body, fontSize: 13.5, fontWeight: 700, color: T.ink } }, e.name),
-              h("span", { style: { fontFamily: font.body, fontSize: 10, fontWeight: 800, letterSpacing: 0.8, color: impactColor[e.impact], border: "1px solid " + impactColor[e.impact], borderRadius: 999, padding: "1px 8px" } }, e.impact.toUpperCase())),
-            h("div", { style: { fontFamily: font.mono, fontSize: 11.5, color: T.inkSoft, marginTop: 2 } }, e.time),
-            h("div", { style: { fontFamily: font.body, fontSize: 12, color: T.inkSoft, lineHeight: 1.5, marginTop: 3 } }, e.note))
+            h("div", { style: { fontFamily: font.body, fontSize: 13.5, fontWeight: 700, color: T.ink, lineHeight: 1.3 } }, e.name),
+            // Time and impact share one meta row. Previously the tag sat
+            // inline with the title and wrapped to its own line on longer
+            // names, which made rows different heights for no reason.
+            h("div", { style: { display: "flex", alignItems: "center", gap: 8, marginTop: 4 } },
+              h("span", { style: { fontFamily: font.mono, fontSize: 11.5, color: T.inkSoft } }, e.time),
+              h("span", { style: { fontFamily: font.body, fontSize: 9.5, fontWeight: 800, letterSpacing: 0.8, color: impactColor[e.impact], border: "1px solid " + impactColor[e.impact], borderRadius: 999, padding: "1px 7px" } }, e.impact.toUpperCase())),
+            h("div", { style: { fontFamily: font.body, fontSize: 12, color: T.inkSoft, lineHeight: 1.5, marginTop: 4 } }, e.note))
         );
       })
     ),
@@ -591,7 +594,7 @@ function ScoreboardScreen() {
           h("span", { style: { fontFamily: font.mono, fontSize: 12, color: T.inkSoft, width: 52, flex: "0 0 auto" } }, r.date),
           h("span", { style: { color: dirColor(r.call === "none" ? "none" : r.call), fontSize: 11, width: 14 } }, dirArrow(r.call === "none" ? "none" : r.call)),
           h("span", { style: { fontFamily: font.mono, fontSize: 12.5, fontWeight: 700, color: T.ink, width: 44 } }, r.call === "none" ? "\u2014" : Math.round(r.prob * 100) + "%"),
-          h("span", { style: { fontFamily: font.body, fontSize: 12.5, marginLeft: "auto" } }, outcome(r)));
+          h("span", { style: { fontFamily: font.body, fontSize: 12.5, marginLeft: "auto" } }, outcome(r.outcome)));
       })
     ),
     h(Card, { style: { border: "none", background: "transparent", padding: "0 4px" } },
@@ -703,7 +706,7 @@ function App() {
 
     // Header: compass mark, brand, settings cog. Same bones as Estate File,
     // different instrument on the flag pole.
-    h("div", { style: { background: T.header, color: "#EDF1FA", padding: "calc(10px + env(safe-area-inset-top)) 16px 0", borderBottom: "2px solid " + HDR.gold } },
+    h("div", { style: { background: T.header, color: "#EDF1FA", padding: "calc(10px + env(safe-area-inset-top)) 16px 0", borderBottom: "2px solid " + HDR.gold, position: "sticky", top: 0, zIndex: 20 } },
       h("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
         h("div", { style: { width: 42, height: 42, borderRadius: 999, border: "1.5px solid " + HDR.gold, display: "flex", alignItems: "center", justifyContent: "center", flex: "0 0 auto" } },
           h(CompassMark, { size: 27, color: HDR.gold })),
@@ -721,14 +724,14 @@ function App() {
 
       // Tab strip with the right-edge fade cue, straight from the template.
       h("div", { style: { position: "relative", marginTop: 9 } },
-        h("div", { className: "hscroll", style: { display: "flex", gap: 16 } },
+        h("div", { className: "hscroll", style: { display: "flex", gap: 11, paddingRight: 18 } },
           TABS.map(function (tb) {
             return h("button", {
               key: tb.id,
               onClick: function () { setTab(tb.id); },
               "aria-current": tab === tb.id ? "page" : undefined,
               style: { flex: "0 0 auto", border: "none", background: "transparent", cursor: "pointer",
-                padding: "14px 2px 11px", fontFamily: font.body, fontSize: 13, letterSpacing: 0.2,
+                padding: "14px 1px 11px", fontFamily: font.body, fontSize: 12.5, letterSpacing: 0,
                 fontWeight: tab === tb.id ? 800 : 600,
                 color: tab === tb.id ? HDR.gold : HDR.idle,
                 borderBottom: "3px solid " + (tab === tb.id ? HDR.gold : "transparent") }
