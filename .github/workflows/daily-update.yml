@@ -1,1 +1,33 @@
 
+name: Daily Crude Compass update
+
+on: {schedule: [{cron: '0 12 * * 1-5'}], workflow_dispatch: {}}
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        working-directory: pipeline
+        run: pip install -r requirements.txt
+
+      - name: Refresh history
+        working-directory: pipeline
+        env:
+          EIA_API_KEY: ${{ secrets.EIA_API_KEY }}
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: python run.py --backfill
+
+      - name: Produce today's call
+        working-directory: p
