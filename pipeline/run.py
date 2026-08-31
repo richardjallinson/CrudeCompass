@@ -149,9 +149,13 @@ def cmd_daily(df=None, dry=False):
     df = df if df is not None else _load_frame()
     X, y, idx, cols = feat.matrix(df)
 
-    # Validate first so the app can display an honest scorecard.
+    # Validate first so the app can display an honest scorecard. The scoreboard
+    # grades the CALIBRATED probability, because that is what the Today card
+    # shows — but calibrated walk-forward, so no day is graded by a calibrator
+    # that had already seen it.
     probs, mask = mdl.walk_forward(X, y)
-    ev = mdl.evaluate(probs, y, mask)
+    cal_probs, cal_mask = mdl.calibrate_walk_forward(probs, mask, y)
+    ev = mdl.evaluate(probs, y, mask, display_probs=cal_probs, display_mask=cal_mask)
 
     # Fit on everything through the last complete day, then predict the next.
     final = mdl.fit_final(X, y)
@@ -189,7 +193,13 @@ def cmd_daily(df=None, dry=False):
         if len(drivers) >= 4:
             break
 
-    session_date = (idx[-1] + pd.Timedelta(days=1)).date()
+    # Next TRADING day, not next calendar day. If the last complete row is a
+    # Friday, +1 day would stamp the call for a Saturday session that never
+    # settles — the row would sit "open" in the scoreboard forever. This does
+    # not know about market holidays; a call stamped for Thanksgiving still
+    # waits an extra day for its settlement, which resolve_predictions handles
+    # because it matches on date rather than assuming the next row is the one.
+    session_date = (idx[-1] + pd.offsets.BDay(1)).date()
     prediction = {
         "state": state,
         "probability": round(prob, 4),

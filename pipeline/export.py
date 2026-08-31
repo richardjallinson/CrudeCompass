@@ -111,6 +111,13 @@ def build_payload(df, cols, prediction, evaluation, model_meta):
             "liveStands": len(stands),
             "brier": round(ev.get("brier", 0.0) or 0.0, 4),
             "brierBaseline": round(ev.get("brier_baseline", 0.0) or 0.0, 4),
+            # How many days the Brier and calibration table above cover, and
+            # whether they grade the calibrated percentage the app displays.
+            # This is smaller than the out-of-sample count: the earliest days
+            # predate any calibrator and are left ungraded rather than graded
+            # on a number the app would never have shown.
+            "scoredDays": ev.get("n_scored", 0),
+            "scoredCalibrated": ev.get("scored_calibrated", False),
             "beatsBaseline": ev.get("beats_baseline", False),
             "calibration": ev.get("calibration", []),
             "calibrationNote": _calibration_note(ev),

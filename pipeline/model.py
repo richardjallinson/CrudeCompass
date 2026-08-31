@@ -51,8 +51,48 @@ def walk_forward(X, y, min_train=None, step=None):
     return probs, ~np.isnan(probs)
 
 
-def evaluate(probs, y, mask):
-    """The honest scorecard."""
+def calibrate_walk_forward(probs, mask, y, min_fit=200, step=None):
+    """Out-of-sample CALIBRATED probabilities, same discipline as walk_forward.
+
+    The app displays a calibrated percentage, so the scoreboard has to grade a
+    calibrated percentage or it is grading a number nobody sees. But fitting
+    the calibrator on all of history and then scoring it on that same history
+    would flatter it: isotonic regression can bend itself onto any sample it
+    is shown. So this walks forward too — each block is calibrated by a map
+    fitted only on the out-of-sample days BEFORE it.
+
+    Returns (cal_probs, cal_mask). The first `min_fit` out-of-sample days have
+    no calibrator yet and are left out rather than silently shown raw.
+    """
+    step = step or config.WALKFORWARD_STEP
+    p = probs[mask]
+    truth = y[mask]
+
+    cal = np.full(len(p), np.nan)
+    start = min_fit
+    while start < len(p):
+        end = min(start + step, len(p))
+        calibrator = fit_calibrator(p[:start], truth[:start])
+        if calibrator is not None:
+            cal[start:end] = calibrator.predict(p[start:end])
+        start = end
+
+    out = np.full(len(probs), np.nan)
+    out[mask] = cal
+    return out, ~np.isnan(out)
+
+
+def evaluate(probs, y, mask, display_probs=None, display_mask=None):
+    """The honest scorecard.
+
+    `probs` are the model's raw scores and always drive the UP/DOWN/NO EDGE
+    decision — the accuracy-when-fired figure was measured against raw
+    thresholds, and re-deciding on calibrated numbers would invalidate it.
+
+    `display_probs`, when supplied, are what the app actually puts on screen.
+    The Brier score and the calibration table are computed from those, so the
+    scoreboard grades the number the user sees rather than an internal one.
+    """
     p = probs[mask]
     truth = y[mask]
     if len(p) == 0:
@@ -65,9 +105,21 @@ def evaluate(probs, y, mask):
     overall = float((calls == truth).mean())
     fired_acc = float((calls[fired] == truth[fired]).mean()) if fired.sum() else float("nan")
 
+    # Which probabilities get GRADED. Decisions above came from the raw
+    # scores; the numbers below are the ones shown on screen, when we have
+    # them. They can cover fewer days, because the earliest out-of-sample
+    # days predate any calibrator.
+    if display_probs is not None and display_mask is not None and display_mask.sum() > 0:
+        shown = display_probs[display_mask]
+        shown_truth = y[display_mask]
+        shown_is_calibrated = True
+    else:
+        shown, shown_truth = p, truth
+        shown_is_calibrated = False
+
     # Brier score: mean squared error of the probability itself. Lower is
     # better; the always-say-baseline model scores baseline*(1-baseline).
-    brier = float(np.mean((p - truth) ** 2))
+    brier = float(np.mean((shown - shown_truth) ** 2))
     brier_ref = float(baseline * (1 - baseline))
 
     # Calibration: within each probability bucket, how often did it happen?
@@ -79,13 +131,13 @@ def evaluate(probs, y, mask):
     bins = [(0.0, 0.40), (0.40, 0.45), (0.45, 0.50), (0.50, 0.55), (0.55, 0.60), (0.60, 1.01)]
     calibration = []
     for lo, hi in bins:
-        sel = (p >= lo) & (p < hi)
+        sel = (shown >= lo) & (shown < hi)
         if sel.sum() >= 10:
             calibration.append({
                 "band": f"{int(lo*100)}-{int(hi*100)}%",
                 "n": int(sel.sum()),
-                "predicted": float(p[sel].mean()),
-                "actual": float(truth[sel].mean()),
+                "predicted": float(shown[sel].mean()),
+                "actual": float(shown_truth[sel].mean()),
             })
 
     return {
@@ -97,6 +149,8 @@ def evaluate(probs, y, mask):
         "n_stood_down": int((~fired).sum()),
         "brier": brier,
         "brier_baseline": brier_ref,
+        "n_scored": int(len(shown)),
+        "scored_calibrated": shown_is_calibrated,
         "beats_baseline": bool(fired_acc == fired_acc and fired_acc > baseline),
         "calibration": calibration,
     }
