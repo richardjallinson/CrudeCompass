@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-28T16:57:57+00:00",
+  "generatedAt": "2026-08-31T12:19:22+00:00",
   "dataThrough": "2026-08-25",
   "isLive": true,
   "version": "v1B",
@@ -253,48 +253,50 @@
     "liveAccuracy": null,
     "liveResolved": 0,
     "liveStands": 0,
-    "brier": 0.2537,
+    "brier": 0.2515,
     "brierBaseline": 0.25,
+    "scoredDays": 3329,
+    "scoredCalibrated": true,
     "beatsBaseline": true,
     "calibration": [
       {
         "band": "0-40%",
-        "n": 316,
-        "predicted": 0.3475260117731154,
-        "actual": 0.4240506329113924
+        "n": 72,
+        "predicted": 0.3891391714436603,
+        "actual": 0.5555555555555556
       },
       {
         "band": "40-45%",
-        "n": 541,
-        "predicted": 0.42773051082029545,
-        "actual": 0.4953789279112754
+        "n": 375,
+        "predicted": 0.4197861020225543,
+        "actual": 0.432
       },
       {
         "band": "45-50%",
-        "n": 914,
-        "predicted": 0.4770931915490522,
-        "actual": 0.5109409190371991
+        "n": 810,
+        "predicted": 0.48038752393163403,
+        "actual": 0.5074074074074074
       },
       {
         "band": "50-55%",
-        "n": 1237,
-        "predicted": 0.5234325214695615,
-        "actual": 0.4971705739692805
+        "n": 1983,
+        "predicted": 0.5126946423798106,
+        "actual": 0.5047907211296017
       },
       {
         "band": "55-60%",
-        "n": 411,
-        "predicted": 0.5674415883260758,
-        "actual": 0.5304136253041363
+        "n": 35,
+        "predicted": 0.5738172816089807,
+        "actual": 0.4857142857142857
       },
       {
         "band": "60-101%",
-        "n": 110,
-        "predicted": 0.640642869839061,
-        "actual": 0.5181818181818182
+        "n": 54,
+        "predicted": 0.7448866014456436,
+        "actual": 0.5
       }
     ],
-    "calibrationNote": "Of days the model put 60-101% on a direction, 52% resolved that way against 64% predicted (110 days). Closer together is better.",
+    "calibrationNote": "Of days the model put 60-101% on a direction, 50% resolved that way against 74% predicted (54 days). Closer together is better.",
     "log": [
       {
         "date": "2026-08-26",
