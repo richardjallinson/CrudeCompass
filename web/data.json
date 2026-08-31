@@ -1,20 +1,20 @@
 {
-  "generatedAt": "2026-08-31T14:43:30+00:00",
+  "generatedAt": "2026-08-31T18:17:17+00:00",
   "dataThrough": "2026-08-31",
   "isLive": true,
   "version": "v1B",
   "limitation": "Free EIA and FRED data publishes end-of-day with a lag, so in this local-script version a call is resolved the NEXT morning rather than live at the 2:30 PM ET settlement. The intraday tracking strip stays empty until a live price feed arrives in v1C.",
   "asOf": "Data through Mon Aug 31 \u00b7 locked 8:00 AM ET",
   "spot": {
-    "last": 85.72,
-    "chg": 2.32,
-    "chgPct": 2.78
+    "last": 85.68,
+    "chg": 2.28,
+    "chgPct": 2.73
   },
   "prediction": {
     "state": "down",
     "probability": 0.4962,
-    "rangeLow": 83.44,
-    "rangeHigh": 88.0,
+    "rangeLow": 83.4,
+    "rangeHigh": 87.96,
     "drivers": [
       {
         "label": "Day of week",
@@ -148,7 +148,7 @@
     82.23,
     83.53,
     83.4,
-    85.72
+    85.68
   ],
   "chart5D": [
     99.93,
@@ -240,7 +240,7 @@
     82.23,
     83.53,
     83.4,
-    85.72
+    85.68
   ],
   "scoreboard": {
     "windowLabel": "Walk-forward validation (out of sample)",
