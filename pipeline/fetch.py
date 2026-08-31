@@ -68,6 +68,56 @@ def fetch_fred(series_id, start=None):
 
 
 # ---------------------------------------------------------------------------
+# Yahoo Finance - front-month WTI, no API key, same-day close
+# ---------------------------------------------------------------------------
+# FRED's DCOILWTICO is official but lags several business days, which makes the
+# morning call stale before it is even made. Yahoo carries the same continuous
+# front-month contract (CL=F) and posts the close the same evening.
+#
+# This uses Yahoo's chart JSON endpoint, not the old CSV download, because the
+# CSV route now needs a session cookie. Same return shape as fetch_fred(), so
+# it is a drop-in replacement for the WTI series.
+def fetch_yahoo(symbol=None, start=None):
+    """Returns list of (date_str, float_or_None), oldest first."""
+    import datetime as _dt
+
+    sym = symbol or config.YAHOO_SYMBOL
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}"
+    params = {"range": "10y", "interval": "1d"}
+
+    data = _get(url, params, f"Yahoo {sym}")
+
+    try:
+        result = data["chart"]["result"][0]
+        stamps = result["timestamp"]
+        closes = result["indicators"]["quote"][0]["close"]
+    except (KeyError, IndexError, TypeError) as exc:
+        err = (data.get("chart") or {}).get("error")
+        raise RuntimeError(
+            f"Yahoo {sym} returned an unexpected shape ({exc}). "
+            f"error field: {err}"
+        )
+
+    if not stamps:
+        raise RuntimeError(f"Yahoo {sym} returned no rows - check the symbol")
+
+    out = []
+    for ts, close in zip(stamps, closes):
+        # Yahoo timestamps are UTC seconds at market open; the date is what matters.
+        date = _dt.datetime.utcfromtimestamp(ts).strftime("%Y-%m-%d")
+        if start and date < start[:10]:
+            continue
+        val = None if close is None else float(close)
+        out.append((date, val))
+
+    # Collapse any duplicate dates, keeping the last value seen.
+    best = {}
+    for date, val in out:
+        best[date] = val
+    return sorted(best.items())
+
+
+# ---------------------------------------------------------------------------
 # EIA v2
 # ---------------------------------------------------------------------------
 def fetch_eia(series_id, start=None):
@@ -148,6 +198,16 @@ def fetch_cftc(start=None):
 def check_sources():
     """Hit every source once and report. Run this before trusting anything."""
     results = []
+
+    try:
+        rows = fetch_yahoo()
+        good = [r for r in rows if r[1] is not None]
+        results.append(
+            (f"Yahoo WTI ({config.YAHOO_SYMBOL})", True,
+             f"{len(rows)} rows, last good {good[-1][0]} = {good[-1][1]}" if good else "no values")
+        )
+    except Exception as exc:
+        results.append((f"Yahoo WTI ({config.YAHOO_SYMBOL})", False, str(exc)))
 
     for label, sid in config.FRED_SERIES.items():
         try:

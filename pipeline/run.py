@@ -42,7 +42,22 @@ def cmd_backfill():
     db.init()
     print(f"Backfilling from {config.HISTORY_START}.\n")
 
+    # WTI comes from Yahoo, not FRED. FRED's DCOILWTICO is the official series
+    # but publishes several business days late, which made the 8am call stale
+    # before it was made. Yahoo carries the same front-month contract with a
+    # same-day close.
+    #
+    # It is stored under the FRED series id anyway, so features.py and every
+    # downstream column keep working untouched. The id is now just a storage
+    # key, not a claim about where the number came from.
+    wti_sid = config.FRED_SERIES["wti"]
+    rows = fetch.fetch_yahoo()
+    n = db.upsert_series("prices", wti_sid, rows)
+    print(f"  Yahoo {'wti':7s} {config.YAHOO_SYMBOL:16s} {n:6d} rows")
+
     for label, sid in config.FRED_SERIES.items():
+        if label == "wti":
+            continue
         rows = fetch.fetch_fred(sid)
         n = db.upsert_series("prices", sid, rows)
         print(f"  FRED {label:8s} {sid:16s} {n:6d} rows")

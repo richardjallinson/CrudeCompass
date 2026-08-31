@@ -56,6 +56,13 @@ FRED_SERIES = {
 }
 FRED_BASE = "https://api.stlouisfed.org/fred/series/observations"
 
+# --- Yahoo Finance: same-day WTI -------------------------------------------
+# FRED publishes DCOILWTICO several business days late, which makes the 8am
+# call stale before it is made. Yahoo carries the continuous front-month WTI
+# contract as CL=F and posts the close the same evening, free and keyless.
+# Stooq was tried first and blocks its CSV endpoint from ordinary connections.
+YAHOO_SYMBOL = "CL=F"
+
 # EIA v2 weekly petroleum stocks.
 #   WCESTUS1              US crude oil stocks excluding SPR, thousand barrels
 #   W_EPC0_SAX_YCUOK_MBBL Cushing OK crude stocks, thousand barrels
