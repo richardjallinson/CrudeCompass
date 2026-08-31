@@ -257,16 +257,30 @@ const sampleData = {
 // Live binding. Starts as the sample; replaced by data.json when it loads.
 let D = sampleData;
 
-// How old the data is allowed to be before the app calls it stale. Oil
-// trades Sunday evening through Friday afternoon, so a Monday morning open
-// legitimately sees Friday's close: three days, not one.
-const STALE_DAYS = 4;
+// How old the data is allowed to be before the app calls it stale, counted
+// in BUSINESS days. Calendar days would climb over every weekend and cry
+// wolf on Sunday and Monday morning when nothing is wrong — and a warning
+// that is usually wrong is one you learn to ignore.
+const STALE_DAYS = 3;
 
 function dataAgeDays() {
   if (!D.dataThrough) return null;
   const then = new Date(D.dataThrough + "T00:00:00");
   if (isNaN(then.getTime())) return null;
-  return Math.floor((Date.now() - then.getTime()) / 86400000);
+
+  // Walk forward day by day from the data date to today, counting only
+  // Mon-Fri. Holidays still count as business days here, so a long weekend
+  // can cost one day of headroom; that is the safe direction to be wrong in.
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  let count = 0;
+  const cur = new Date(then.getFullYear(), then.getMonth(), then.getDate());
+  while (cur < today) {
+    cur.setDate(cur.getDate() + 1);
+    const dow = cur.getDay();
+    if (dow !== 0 && dow !== 6) count++;
+  }
+  return count;
 }
 
 function loadData() {
@@ -777,7 +791,7 @@ function App() {
       if (age !== null && age > STALE_DAYS) {
         return h("div", { style: { background: T.cardDown, borderBottom: "1px solid " + T.down, padding: "8px 16px",
           fontFamily: font.body, fontSize: 11.5, fontWeight: 700, color: T.down, textAlign: "center" } },
-          "Stale \u2014 data is " + age + " days old. The pipeline has not run. Do not act on this screen.");
+          "Stale \u2014 data is " + age + " business day" + (age === 1 ? "" : "s") + " old. The pipeline has not run. Do not act on this screen.");
       }
       return h("div", { style: { background: T.brassSoft, borderBottom: "1px solid " + T.line, padding: "7px 16px",
         fontFamily: font.body, fontSize: 11, fontWeight: 700, color: T.brass, textAlign: "center", letterSpacing: 0.3 } },
