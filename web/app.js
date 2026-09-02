@@ -723,6 +723,26 @@ function ScoreboardScreen() {
 // ---------------------------------------------------------------------------
 
 const TRADES_KEY = "cc_trades_v1";
+const ACCOUNT_KEY = "cc_account_v1";
+
+// Cash movements: opening balance, deposits, withdrawals, adjustments.
+// Balance is never typed in directly - it is always computed from these
+// plus realized P/L, so the number on screen can be audited line by line.
+function loadAccount() {
+  try {
+    const raw = localStorage.getItem(ACCOUNT_KEY);
+    if (!raw) return { movements: [], room: null, roomYear: null };
+    const o = JSON.parse(raw);
+    return { movements: Array.isArray(o.movements) ? o.movements : [], room: (typeof o.room === "number") ? o.room : null, roomYear: o.roomYear || null };
+  } catch (e) { return { movements: [], room: null, roomYear: null }; }
+}
+function saveAccount(a) { try { localStorage.setItem(ACCOUNT_KEY, JSON.stringify(a)); } catch (e) {} }
+// Signed cash effect of a movement.
+function movementAmount(m) {
+  if (m.type === "withdrawal") return -Math.abs(m.amount);
+  if (m.type === "adjustment") return m.amount;
+  return Math.abs(m.amount);   // opening, deposit
+}
 const COMMISSION_KEY = "cc_commission_v1";
 const DEFAULT_COMMISSION = 9.99;
 
@@ -769,9 +789,41 @@ function tradeVsModel(t) {
   return side === t.model ? "with" : "against";
 }
 
+// Equity curve: a small stepped line of account balance over time.
+function EquityCurve(props) {
+  const pts = props.points;
+  if (!pts || pts.length < 2) return null;
+  const w = 320, hgt = 90, padL = 6, padR = 6, padT = 8, padB = 8;
+  const vals = pts.map(function (p) { return p.bal; });
+  const lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+  const span = (hi - lo) || 1;
+  const X = function (i) { return padL + (i / (pts.length - 1)) * (w - padL - padR); };
+  const Y = function (v) { return padT + (1 - (v - lo) / span) * (hgt - padT - padB); };
+  let d = "M " + fmt(X(0)) + " " + fmt(Y(pts[0].bal));
+  for (let i = 1; i < pts.length; i++) d += " L " + fmt(X(i)) + " " + fmt(Y(pts[i - 1].bal)) + " L " + fmt(X(i)) + " " + fmt(Y(pts[i].bal));
+  const last = pts[pts.length - 1].bal, first = pts[0].bal;
+  const color = last >= first ? T.up : T.down;
+  const area = d + " L " + fmt(X(pts.length - 1)) + " " + fmt(hgt - padB) + " L " + fmt(X(0)) + " " + fmt(hgt - padB) + " Z";
+  return h("svg", { width: "100%", viewBox: "0 0 " + w + " " + hgt, role: "img", "aria-label": "Account balance over time", style: { display: "block" } },
+    h("path", { d: area, fill: color, opacity: 0.10 }),
+    h("path", { d: d, fill: "none", stroke: color, strokeWidth: 2, strokeLinejoin: "round" }),
+    pts.map(function (p, i) { return p.kind === "cash" ? h("circle", { key: i, cx: X(i), cy: Y(p.bal), r: 2.6, fill: T.brass }) : null; }),
+    h("circle", { cx: X(pts.length - 1), cy: Y(last), r: 3.2, fill: color }));
+}
+
 function TradesScreen() {
   const [trades, setTrades] = useState(loadTrades);
   const [commission, setCommission] = useState(loadCommission);
+  const [account, setAccount] = useState(loadAccount);
+  const persistAccount = function (a) { setAccount(a); saveAccount(a); };
+
+  // Cash-movement form.
+  const [mvType, setMvType] = useState(account.movements.length ? "deposit" : "opening");
+  const [mvAmount, setMvAmount] = useState("");
+  const [mvDate, setMvDate] = useState(todayISO());
+  const [mvNote, setMvNote] = useState("");
+  const [roomText, setRoomText] = useState(account.room === null ? "" : String(account.room));
+  const [showMovements, setShowMovements] = useState(false);
   const I = D.instruments || {};
   const UP_T = (I.up && I.up.ticker) || "HOU.TO";
   const DN_T = (I.down && I.down.ticker) || "HOD.TO";
@@ -840,7 +892,172 @@ function TradesScreen() {
     if (v === "with") { withCall += 1; withNet += p.net; }
     if (v === "against") { againstCall += 1; againstNet += p.net; }
   });
+  net = Math.round(net * 100) / 100; gross = Math.round(gross * 100) / 100; fees = Math.round(fees * 100) / 100;
   const netColor = net > 0 ? T.up : net < 0 ? T.down : T.heading;
+  const plColor = function (n) { return n > 0 ? T.up : n < 0 ? T.down : T.heading; };
+
+  // ---- Account -----------------------------------------------------------
+  const cents = function (x) { return Math.round(x * 100) / 100; };
+  const movements = account.movements;
+  const hasOpening = movements.some(function (m) { return m.type === "opening"; });
+  let contributed = 0, withdrawn = 0, adjusted = 0, opening = 0;
+  movements.forEach(function (m) {
+    if (m.type === "opening") opening += Math.abs(m.amount);
+    else if (m.type === "deposit") contributed += Math.abs(m.amount);
+    else if (m.type === "withdrawal") withdrawn += Math.abs(m.amount);
+    else adjusted += m.amount;
+  });
+  const balance = cents(opening + contributed - withdrawn + adjusted + net);
+  const openCost = cents(trades.filter(function (t) { return tradePnl(t) === null; })
+    .reduce(function (s, t) { return s + t.shares * t.buy; }, 0));
+  const cashAvail = cents(balance - openCost);
+  const capitalIn = opening + contributed - withdrawn;   // what you put in, net
+  const returnPct = capitalIn > 0 ? ((balance - capitalIn) / capitalIn) * 100 : null;
+
+  // Equity curve: every cash movement and every CLOSED trade, in date order,
+  // each stepping the running balance. Open trades are not in it: without
+  // a live price there is no honest number to plot for them.
+  const events = [];
+  movements.forEach(function (m) { events.push({ date: m.date, amt: movementAmount(m), kind: "cash" }); });
+  closed.forEach(function (t) { events.push({ date: t.date, amt: tradePnl(t).net, kind: "trade" }); });
+  events.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : (a.kind === "cash" ? -1 : 1); });
+  const curve = [];
+  let run = 0, peak = 0, maxDD = 0, ddNow = 0;
+  events.forEach(function (e) {
+    run = cents(run + e.amt);
+    // Peak is measured on trading results only: a deposit is not a new
+    // high and a withdrawal is not a drawdown.
+    curve.push({ date: e.date, bal: run, kind: e.kind });
+  });
+  // Drawdown on the trading-only equity path.
+  let tradeRun = 0, tradePeak = 0;
+  events.forEach(function (e) {
+    if (e.kind !== "trade") return;
+    tradeRun = cents(tradeRun + e.amt);
+    if (tradeRun > tradePeak) tradePeak = tradeRun;
+    const dd = cents(tradePeak - tradeRun);
+    if (dd > maxDD) maxDD = dd;
+    ddNow = dd;
+  });
+
+  // Streak, most recent closed trades first.
+  const streak = (function () {
+    const cl = trades.filter(function (t) { return tradePnl(t) !== null; })
+      .sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; });
+    if (!cl.length) return null;
+    const first = tradePnl(cl[0]).net > 0 ? "win" : tradePnl(cl[0]).net < 0 ? "loss" : "flat";
+    let n = 0;
+    for (let i = 0; i < cl.length; i++) {
+      const k = tradePnl(cl[i]).net > 0 ? "win" : tradePnl(cl[i]).net < 0 ? "loss" : "flat";
+      if (k !== first) break;
+      n += 1;
+    }
+    return { kind: first, n: n };
+  })();
+
+  // TFSA room. The user enters the room CRA shows for this year; the app
+  // subtracts deposits made this year. Withdrawals do NOT come back until
+  // January 1, so they are deliberately not added.
+  const thisYear = todayISO().slice(0, 4);
+  const depositsThisYear = cents(movements.filter(function (m) { return m.type === "deposit" && m.date.slice(0, 4) === thisYear; })
+    .reduce(function (s, m) { return s + Math.abs(m.amount); }, 0));
+  const withdrawnThisYear = cents(movements.filter(function (m) { return m.type === "withdrawal" && m.date.slice(0, 4) === thisYear; })
+    .reduce(function (s, m) { return s + Math.abs(m.amount); }, 0));
+  const roomIsCurrent = account.room !== null && account.roomYear === thisYear;
+  const roomLeft = roomIsCurrent ? cents(account.room - depositsThisYear) : null;
+
+  const addMovement = function () {
+    const a = parseFloat(mvAmount);
+    if (isNaN(a) || (mvType !== "adjustment" && !(a > 0))) return flash("Enter an amount.");
+    if (mvType === "opening" && hasOpening) return flash("There is already an opening balance. Use Adjustment to correct it.");
+    const m = { id: Date.now() + "-" + Math.random().toString(36).slice(2, 7), type: mvType, amount: mvType === "adjustment" ? a : Math.abs(a), date: mvDate || todayISO(), note: mvNote.trim() };
+    persistAccount(Object.assign({}, account, { movements: [m].concat(movements) }));
+    setMvAmount(""); setMvNote(""); if (mvType === "opening") setMvType("deposit");
+    flash(mvType === "opening" ? "Opening balance set." : (mvType.charAt(0).toUpperCase() + mvType.slice(1)) + " logged.");
+  };
+  const deleteMovement = function (id) {
+    if (confirmDel !== id) { setConfirmDel(id); setTimeout(function () { setConfirmDel(null); }, 3000); return; }
+    persistAccount(Object.assign({}, account, { movements: movements.filter(function (m) { return m.id !== id; }) }));
+    setConfirmDel(null);
+  };
+  const saveRoom = function () {
+    const r = parseFloat(roomText);
+    if (isNaN(r) || r < 0) return flash("Enter the room CRA shows for " + thisYear + ".");
+    persistAccount(Object.assign({}, account, { room: cents(r), roomYear: thisYear }));
+    flash("Room saved for " + thisYear + ".");
+  };
+  const mvLabel = { opening: "Opening balance", deposit: "Deposit", withdrawal: "Withdrawal", adjustment: "Adjustment" };
+  const [expanded, setExpanded] = useState(null);
+
+  // Group by month, then by Monday-to-Friday week, newest first. Keys are
+  // ISO dates ("2026-08-31" for a week, "2026-08" for a month) so string
+  // sort is date sort.
+  const mondayOf = function (iso) {
+    const d = new Date(iso + "T12:00:00");
+    const day = d.getDay();                       // 0 Sun .. 6 Sat
+    d.setDate(d.getDate() - ((day + 6) % 7));     // back to Monday
+    const p = function (x) { return (x < 10 ? "0" : "") + x; };
+    return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate());
+  };
+  const shortDate = function (iso) {
+    const d = new Date(iso + "T12:00:00");
+    return ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][d.getMonth()] + " " + d.getDate();
+  };
+  const monthLabel = function (key) {
+    const d = new Date(key + "-15T12:00:00");
+    return ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"][d.getMonth()] + " " + d.getFullYear();
+  };
+  const groups = (function () {
+    const months = {};
+    trades.forEach(function (t) {
+      const mk = t.date.slice(0, 7), wk = mondayOf(t.date);
+      if (!months[mk]) months[mk] = { key: mk, weeks: {}, net: 0, closed: 0, wins: 0, open: 0 };
+      const m = months[mk];
+      if (!m.weeks[wk]) m.weeks[wk] = { key: wk, trades: [], net: 0, closed: 0, wins: 0, open: 0 };
+      const w = m.weeks[wk];
+      w.trades.push(t);
+      const p = tradePnl(t);
+      if (p) { w.net += p.net; w.closed += 1; m.net += p.net; m.closed += 1; if (p.net > 0) { w.wins += 1; m.wins += 1; } }
+      else { w.open += 1; m.open += 1; }
+    });
+    return Object.keys(months).sort().reverse().map(function (mk) {
+      const m = months[mk];
+      m.weeks = Object.keys(m.weeks).sort().reverse().map(function (wk) {
+        const w = m.weeks[wk];
+        w.trades.sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; });
+        return w;
+      });
+      return m;
+    });
+  })();
+  const thisWeekKey = mondayOf(todayISO());
+  // A week that straddles a month boundary appears under both months (the
+  // monthly totals have to be calendar-true), so "this week" is summed
+  // across every portion of it.
+  const thisWeek = (function () {
+    let acc = null;
+    groups.forEach(function (m) { m.weeks.forEach(function (w) {
+      if (w.key !== thisWeekKey) return;
+      if (!acc) acc = { key: w.key, net: 0, closed: 0, wins: 0, open: 0 };
+      acc.net += w.net; acc.closed += w.closed; acc.wins += w.wins; acc.open += w.open;
+    }); });
+    return acc;
+  })();
+
+  const cell = function (align) {
+    return { padding: "7px 4px", textAlign: align || "right", borderBottom: "1px solid " + T.line, whiteSpace: "nowrap" };
+  };
+  const subtotal = function (key, label, g, isMonth) {
+    const bg = isMonth ? T.brassSoft : T.neutralSoft;
+    const desc = g.closed ? (g.closed + " closed, " + g.wins + " win" + (g.wins === 1 ? "" : "s")) : "";
+    const od = g.open ? (g.open + " open") : "";
+    return h("tr", { key: key, style: { background: bg } },
+      h("td", { colSpan: 5, style: { padding: isMonth ? "9px 6px" : "7px 6px", fontFamily: font.body, fontSize: isMonth ? 12.5 : 11.5, fontWeight: 800, color: isMonth ? T.heading : T.ink, borderBottom: "1px solid " + T.line } },
+        label, h("span", { style: { fontWeight: 600, color: T.inkSoft } }, " \u00b7 " + [desc, od].filter(Boolean).join(", "))),
+      h("td", { style: { padding: "7px 4px", textAlign: "right", fontWeight: 800, fontSize: isMonth ? 14 : 13, color: g.closed ? plColor(g.net) : T.inkSoft, borderBottom: "1px solid " + T.line, whiteSpace: "nowrap" } },
+        g.closed ? money(g.net, true) : "\u2014"),
+      h("td", { style: { borderBottom: "1px solid " + T.line } }));
+  };
 
   const field = function (label, node) {
     return h("label", { style: { display: "block", flex: "1 1 120px", minWidth: 0 } },
@@ -880,9 +1097,12 @@ function TradesScreen() {
         p ? p.gross.toFixed(2) : "", p ? p.fees.toFixed(2) : "", p ? p.net.toFixed(2) : "",
         t.model || "", t.modelProb === null || t.modelProb === undefined ? "" : t.modelProb, (t.note || "").replace(/"/g, "'")]);
     });
-    setBackupText(rows.map(function (r) { return r.map(function (c) { return /[",\n]/.test(String(c)) ? '"' + c + '"' : c; }).join(","); }).join("\n"));
+    const cash = [[], ["date", "type", "amount", "note"]];
+    movements.slice().reverse().forEach(function (m) { cash.push([m.date, m.type, movementAmount(m).toFixed(2), (m.note || "").replace(/"/g, "'")]); });
+    const all = rows.concat(cash);
+    setBackupText(all.map(function (r) { return r.map(function (c) { return /[",\n]/.test(String(c)) ? '"' + c + '"' : c; }).join(","); }).join("\n"));
   };
-  const exportJSON = function () { setBackupText(JSON.stringify({ version: 1, trades: trades }, null, 1)); };
+  const exportJSON = function () { setBackupText(JSON.stringify({ version: 2, trades: trades, account: account }, null, 1)); };
   const copyBackup = function () {
     if (navigator.clipboard && backupText) navigator.clipboard.writeText(backupText).then(function () { flash("Copied."); }, function () { flash("Select the text and copy it by hand."); });
   };
@@ -890,17 +1110,84 @@ function TradesScreen() {
     try {
       const obj = JSON.parse(restoreText);
       if (!obj || !Array.isArray(obj.trades)) throw new Error("no trades array");
-      persist(obj.trades); setRestoreText(""); flash("Restored " + obj.trades.length + " trade(s).");
+      persist(obj.trades);
+      if (obj.account && Array.isArray(obj.account.movements)) persistAccount({ movements: obj.account.movements, room: (typeof obj.account.room === "number") ? obj.account.room : null, roomYear: obj.account.roomYear || null });
+      setRestoreText(""); flash("Restored " + obj.trades.length + " trade(s)" + (obj.account ? " and the account." : "."));
     } catch (e) { flash("That is not a Crude Compass backup."); }
   };
 
   return h("div", null,
+    h(Card, null,
+      SectionLabel("Account"),
+      !hasOpening ? h("div", { style: { fontFamily: font.body, fontSize: 12.5, color: T.inkSoft, lineHeight: 1.55, marginBottom: 10 } },
+        "Start by entering the account's opening balance below. Every number here is computed from the cash movements and closed trades - nothing is typed in as a total.") : null,
+      h("div", { style: { fontFamily: font.mono, fontSize: 34, fontWeight: 700, color: T.heading, letterSpacing: -0.5 } }, money(balance)),
+      h("div", { style: { fontFamily: font.body, fontSize: 12, color: T.inkSoft, marginTop: 2 } },
+        openCost ? "Cash " + money(cashAvail) + " \u00b7 " + money(openCost) + " in open positions at cost" : "All cash"),
+      h("div", { style: { display: "flex", gap: 4, marginTop: 12, borderTop: "1px solid " + T.line, paddingTop: 10 } },
+        stat("return", returnPct === null ? "\u2014" : (returnPct >= 0 ? "+" : "\u2212") + Math.abs(returnPct).toFixed(1) + "%", returnPct === null ? T.inkSoft : plColor(returnPct)),
+        stat("drawdown now", closed.length ? money(-ddNow) : "\u2014", ddNow > 0 ? T.down : T.heading),
+        stat("worst drawdown", closed.length ? money(-maxDD) : "\u2014", maxDD > 0 ? T.down : T.heading),
+        stat("streak", streak ? streak.n + (streak.kind === "win" ? "W" : streak.kind === "loss" ? "L" : "=") : "\u2014", streak ? (streak.kind === "win" ? T.up : streak.kind === "loss" ? T.down : T.heading) : T.inkSoft)),
+      curve.length >= 2 ? h("div", { style: { marginTop: 12, borderTop: "1px solid " + T.line, paddingTop: 10 } },
+        h("div", { style: { fontFamily: font.body, fontSize: 10.5, fontWeight: 800, letterSpacing: 0.8, color: T.inkSoft, textTransform: "uppercase", marginBottom: 6 } }, "Balance over time"),
+        h(EquityCurve, { points: curve }),
+        h("div", { style: { fontFamily: font.body, fontSize: 10.5, color: T.inkSoft, marginTop: 4 } }, "Brass dots are deposits and withdrawals; drawdown is measured on trading results only, so moving money in or out does not count as a high or a low.")) : null,
+
+      // TFSA room.
+      h("div", { style: { marginTop: 12, borderTop: "1px solid " + T.line, paddingTop: 10 } },
+        h("div", { style: { fontFamily: font.body, fontSize: 10.5, fontWeight: 800, letterSpacing: 0.8, color: T.inkSoft, textTransform: "uppercase", marginBottom: 6 } }, "TFSA contribution room \u00b7 " + thisYear),
+        roomIsCurrent ? h("div", { style: { fontFamily: font.body, fontSize: 13, color: T.ink, marginBottom: 6 } },
+          "Room left: ", h("b", { style: { fontFamily: font.mono, color: roomLeft < 0 ? T.down : roomLeft < 1000 ? T.amber : T.up } }, money(roomLeft)),
+          h("span", { style: { color: T.inkSoft } }, " \u00b7 " + money(depositsThisYear) + " deposited, " + money(withdrawnThisYear) + " withdrawn this year"),
+          roomLeft < 0 ? h("div", { style: { color: T.down, fontWeight: 700, marginTop: 4 } }, "Over the room you entered. CRA charges 1% a month on the excess - confirm your room in My Account.") : null) : null,
+        h("div", { style: { display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" } },
+          field("Room from CRA My Account for " + thisYear, input({ type: "number", inputMode: "decimal", step: "0.01", placeholder: "0.00", value: roomText, onChange: function (e) { setRoomText(e.target.value); } })),
+          btn("Save", saveRoom, false, { padding: "10px 14px" })),
+        h("div", { style: { fontFamily: font.body, fontSize: 10.5, color: T.inkSoft, marginTop: 6, lineHeight: 1.5 } },
+          "The app only subtracts deposits you log here. Withdrawals do not restore room until January 1 next year, so they are not added back."))
+    ),
+
+    h(Card, null,
+      SectionLabel("Cash in / out"),
+      h("div", { style: { display: "flex", gap: 6, marginBottom: 10 } },
+        (hasOpening ? ["deposit", "withdrawal", "adjustment"] : ["opening", "deposit", "withdrawal", "adjustment"]).map(function (k) {
+          const on = mvType === k;
+          return h("button", { key: k, onClick: function () { setMvType(k); }, style: {
+            flex: "1 1 0", fontFamily: font.body, fontSize: 12, fontWeight: 800, padding: "8px 4px", borderRadius: 9, cursor: "pointer",
+            border: "1.5px solid " + (on ? T.brass : T.line), background: on ? T.brassSoft : T.field, color: on ? T.heading : T.inkSoft } },
+            k === "opening" ? "Opening" : k.charAt(0).toUpperCase() + k.slice(1));
+        })),
+      h("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 } },
+        field(mvType === "adjustment" ? "Amount (negative to reduce)" : "Amount", input({ type: "number", inputMode: "decimal", step: "0.01", placeholder: "0.00", value: mvAmount, onChange: function (e) { setMvAmount(e.target.value); } })),
+        field("Date", input({ type: "date", value: mvDate, onChange: function (e) { setMvDate(e.target.value); } }))),
+      h("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 } },
+        field("Note", input({ type: "text", placeholder: mvType === "adjustment" ? "e.g. interest, fee, correction" : "optional", value: mvNote, onChange: function (e) { setMvNote(e.target.value); }, style: Object.assign({}, inputStyle, { fontFamily: font.body }) }))),
+      h("div", { style: { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" } },
+        btn(mvType === "opening" ? "Set opening balance" : "Add " + mvType, addMovement, true),
+        movements.length ? btn((showMovements ? "Hide" : "Show") + " history (" + movements.length + ")", function () { setShowMovements(!showMovements); }) : null),
+      showMovements && movements.length ? h("div", { style: { marginTop: 12, borderTop: "1px solid " + T.line } },
+        movements.map(function (m) {
+          const amt = movementAmount(m);
+          return h("div", { key: m.id, style: { display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderBottom: "1px solid " + T.line } },
+            h("span", { style: { fontFamily: font.mono, fontSize: 12, color: T.inkSoft } }, shortDate(m.date)),
+            h("span", { style: { fontFamily: font.body, fontSize: 12.5, fontWeight: 700, color: T.ink } }, mvLabel[m.type]),
+            m.note ? h("span", { style: { fontFamily: font.body, fontSize: 11.5, color: T.inkSoft, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, m.note) : null,
+            h("span", { style: { marginLeft: "auto", fontFamily: font.mono, fontSize: 13.5, fontWeight: 800, color: amt < 0 ? T.down : T.up } }, money(amt, true)),
+            btn(confirmDel === m.id ? "Sure?" : "\u2715", function () { deleteMovement(m.id); }, false, { padding: "5px 8px", fontSize: 11.5, color: confirmDel === m.id ? T.down : T.inkSoft }));
+        })) : null
+    ),
+
     h(Card, null,
       SectionLabel("Net result, all closed trades"),
       h("div", { style: { fontFamily: font.mono, fontSize: 34, fontWeight: 700, color: netColor, letterSpacing: -0.5 } }, money(net, true)),
       h("div", { style: { fontFamily: font.body, fontSize: 12, color: T.inkSoft, marginTop: 2 } },
         "after " + money(fees) + " in commissions on " + closed.length + " closed trade" + (closed.length === 1 ? "" : "s") +
         (open ? " \u00b7 " + open + " open" : "")),
+      h("div", { style: { fontFamily: font.body, fontSize: 13, color: T.ink, marginTop: 8 } },
+        "This week: ", h("b", { style: { fontFamily: font.mono, color: thisWeek && thisWeek.closed ? plColor(thisWeek.net) : T.inkSoft } },
+          thisWeek && thisWeek.closed ? money(thisWeek.net, true) : "nothing closed yet"),
+        thisWeek && thisWeek.closed ? h("span", { style: { color: T.inkSoft } }, " on " + thisWeek.closed + " trade" + (thisWeek.closed === 1 ? "" : "s")) : null),
       closed.length ? h("div", { style: { display: "flex", gap: 4, marginTop: 12, borderTop: "1px solid " + T.line, paddingTop: 10 } },
         stat("win rate", Math.round(100 * wins / closed.length) + "%", wins / closed.length >= 0.5 ? T.up : T.down),
         stat("avg / trade", money(net / closed.length, true), net >= 0 ? T.up : T.down),
@@ -934,36 +1221,63 @@ function TradesScreen() {
         msg ? h("span", { style: { fontFamily: font.body, fontSize: 12, fontWeight: 700, color: T.amber } }, msg) : null)
     ),
 
-    h(Card, { style: { padding: "13px 16px" } },
-      SectionLabel("Trades"),
+    h(Card, { style: { padding: "13px 12px" } },
+      SectionLabel("Ledger"),
       trades.length === 0 ? h("div", { style: { fontFamily: font.body, fontSize: 12.5, color: T.inkSoft } }, "Nothing logged yet.") :
-      trades.map(function (t, i) {
-        const p = tradePnl(t);
-        const side = t.ticker.indexOf("HOU") === 0 ? T.up : T.down;
-        const v = tradeVsModel(t);
-        return h("div", { key: t.id, style: { padding: "10px 0", borderTop: i ? "1px solid " + T.line : "none" } },
-          h("div", { style: { display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" } },
-            h("span", { style: { fontFamily: font.mono, fontSize: 12, color: T.inkSoft } }, t.date),
-            h("span", { style: { fontFamily: font.mono, fontSize: 14, fontWeight: 800, color: side } }, t.ticker),
-            h("span", { style: { fontFamily: font.mono, fontSize: 12.5, color: T.ink } },
-              t.shares + " @ " + fmt(t.buy) + (p ? " \u2192 " + fmt(t.sell) : "")),
-            h("span", { style: { marginLeft: "auto", fontFamily: font.mono, fontSize: 15, fontWeight: 800,
-              color: p ? (p.net > 0 ? T.up : p.net < 0 ? T.down : T.heading) : T.amber } },
-              p ? money(p.net, true) : "open")),
-          h("div", { style: { display: "flex", alignItems: "center", gap: 8, marginTop: 5, flexWrap: "wrap" } },
-            h("span", { style: { fontFamily: font.body, fontSize: 11, color: T.inkSoft } },
-              v === "with" ? "with the call" : v === "against" ? "against the call" : "no call that day",
-              p ? " \u00b7 gross " + money(p.gross, true) + ", fees " + money(p.fees) : "",
-              t.note ? " \u00b7 " + t.note : ""),
-            p ? null : h("div", { style: { display: "flex", gap: 6, alignItems: "center", marginLeft: "auto" } },
-              h("input", { type: "number", inputMode: "decimal", step: "0.01", placeholder: "sell price", value: closing[t.id] || "",
-                onChange: function (e) { const c = Object.assign({}, closing); c[t.id] = e.target.value; setClosing(c); },
-                style: Object.assign({}, inputStyle, { width: 110, padding: "6px 8px", fontSize: 16 }) }),
-              btn("Close", function () { closeTrade(t.id); }, true, { padding: "7px 10px", fontSize: 12.5 })),
-            btn(confirmDel === t.id ? "Sure?" : "\u2715", function () { deleteTrade(t.id); }, false,
-              { padding: "6px 9px", fontSize: 12, marginLeft: p ? "auto" : 0, color: confirmDel === t.id ? T.down : T.inkSoft }))
-        );
-      })
+      h("div", { style: { overflowX: "auto", WebkitOverflowScrolling: "touch", margin: "0 -4px" } },
+        h("table", { style: { borderCollapse: "collapse", width: "100%", minWidth: 340, fontFamily: font.mono, fontSize: 12.5 } },
+          h("thead", null,
+            h("tr", null, ["Date", "Ticker", "Shares", "Buy", "Sell", "P/L", ""].map(function (c, i) {
+              return h("th", { key: i, style: { fontFamily: font.body, fontSize: 10, fontWeight: 800, letterSpacing: 0.8, color: T.inkSoft, textTransform: "uppercase",
+                textAlign: i === 0 || i === 1 ? "left" : "right", padding: "4px 4px 8px", borderBottom: "1px solid " + T.line, whiteSpace: "nowrap" } }, c);
+            }))),
+          h("tbody", null, groups.map(function (m) {
+            const rows = [];
+            m.weeks.forEach(function (w) {
+              w.trades.forEach(function (t) {
+                const p = tradePnl(t);
+                const side = t.ticker.indexOf("HOU") === 0 ? T.up : T.down;
+                const v = tradeVsModel(t);
+                const isOpen = expanded === t.id;
+                rows.push(h("tr", { key: t.id, onClick: function () { setExpanded(isOpen ? null : t.id); }, style: { cursor: "pointer" } },
+                  h("td", { style: cell("left") }, shortDate(t.date)),
+                  h("td", { style: Object.assign(cell("left"), { fontWeight: 800, color: side }) }, t.ticker.replace(".TO", "")),
+                  h("td", { style: cell() }, t.shares),
+                  h("td", { style: cell() }, fmt(t.buy)),
+                  h("td", { style: cell() }, p ? fmt(t.sell) : h("span", { style: { color: T.amber, fontFamily: font.body, fontSize: 11, fontWeight: 700 } }, "open")),
+                  h("td", { style: Object.assign(cell(), { fontWeight: 800, color: p ? plColor(p.net) : T.inkSoft }) }, p ? money(p.net, true) : "\u2014"),
+                  h("td", { style: Object.assign(cell(), { width: 18, color: T.inkSoft, fontFamily: font.body }) }, isOpen ? "\u25B4" : "\u25BE")));
+                if (isOpen) rows.push(h("tr", { key: t.id + "-x", onClick: function (e) { e.stopPropagation(); } },
+                  h("td", { colSpan: 7, style: { padding: "2px 4px 10px", borderBottom: "1px solid " + T.line } },
+                    h("div", { style: { fontFamily: font.body, fontSize: 11.5, color: T.inkSoft, lineHeight: 1.6 } },
+                      (v === "with" ? "With the model's call" : v === "against" ? "Against the model's call" : "No call that day") +
+                      (t.modelProb !== null && t.modelProb !== undefined && t.model && t.model !== "none" ? " (" + Math.round(t.modelProb * 100) + "%)" : "") + ". " +
+                      (p ? "Gross " + money(p.gross, true) + ", commissions " + money(p.fees) + ", net " + money(p.net, true) + "." :
+                           "Still open; commissions so far " + money(t.commission) + ".") +
+                      (t.note ? " " + t.note : "")),
+                    h("div", { style: { display: "flex", gap: 8, alignItems: "center", marginTop: 8, flexWrap: "wrap" } },
+                      p ? null : h("input", { type: "number", inputMode: "decimal", step: "0.01", placeholder: "sell price", value: closing[t.id] || "",
+                        onClick: function (e) { e.stopPropagation(); },
+                        onChange: function (e) { const c = Object.assign({}, closing); c[t.id] = e.target.value; setClosing(c); },
+                        style: Object.assign({}, inputStyle, { width: 120, padding: "6px 8px" }) }),
+                      p ? null : btn("Close trade", function () { closeTrade(t.id); }, true, { padding: "7px 10px", fontSize: 12.5 }),
+                      btn(confirmDel === t.id ? "Sure? tap again" : "Delete", function () { deleteTrade(t.id); }, false,
+                        { padding: "7px 10px", fontSize: 12.5, marginLeft: "auto", color: confirmDel === t.id ? T.down : T.inkSoft })))));
+              });
+              const split = w.key.slice(0, 7) !== m.key;
+              rows.push(subtotal("w" + w.key + m.key, "Week of " + shortDate(w.key) + (split ? " (" + monthLabel(m.key).slice(0, 3) + " part)" : ""), w, false));
+            });
+            rows.push(subtotal("m" + m.key, monthLabel(m.key), m, true));
+            return rows;
+          })),
+          h("tfoot", null,
+            h("tr", null,
+              h("td", { colSpan: 5, style: { padding: "10px 4px 4px", fontFamily: font.body, fontSize: 12, fontWeight: 800, color: T.heading, borderTop: "2px solid " + T.brass } },
+                "All time \u00b7 " + closed.length + " closed" + (open ? ", " + open + " open" : "")),
+              h("td", { style: { padding: "10px 4px 4px", textAlign: "right", fontWeight: 800, fontSize: 14, color: plColor(net), borderTop: "2px solid " + T.brass } }, money(net, true)),
+              h("td", { style: { borderTop: "2px solid " + T.brass } }))))),
+      h("div", { style: { fontFamily: font.body, fontSize: 11, color: T.inkSoft, marginTop: 8, lineHeight: 1.5 } },
+        "P/L is net of commissions. Weeks run Monday to Friday by buy date. Open trades sit in their week but do not count until closed. Tap a row for detail.")
     ),
 
     h(Card, null,
@@ -1076,13 +1390,15 @@ function App() {
 
   const chooseTheme = function (id) { saveTheme(id); setThemeId(id); };
 
+  // Charts was removed in v1C: with no intraday feed it was drawing months
+  // of daily closes under a "today's session" caption. It comes back with
+  // a real feed in v1D. ChartsScreen stays in the file for that day.
   const TABS = [
     { id: "today", label: "Today" },
+    { id: "trades", label: "Trades" },
     { id: "briefing", label: "Briefing" },
     { id: "calendar", label: "Calendar" },
-    { id: "charts", label: "Charts" },
-    { id: "scoreboard", label: "Scoreboard" },
-    { id: "trades", label: "Trades" }
+    { id: "scoreboard", label: "Scoreboard" }
   ];
 
   return h("div", { style: { fontFamily: font.body, color: T.ink, background: T.bg, minHeight: "100vh" } },
@@ -1151,7 +1467,6 @@ function App() {
       tab === "today" ? h(TodayScreen) : null,
       tab === "briefing" ? h(BriefingScreen) : null,
       tab === "calendar" ? h(CalendarScreen) : null,
-      tab === "charts" ? h(ChartsScreen, { range: chartRange, setRange: setChartRange }) : null,
       tab === "scoreboard" ? h(ScoreboardScreen) : null,
       tab === "trades" ? h(TradesScreen) : null,
       tab === "settings" ? h(SettingsScreen, { themeId: themeId, chooseTheme: chooseTheme }) : null)
