@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-02T11:22:36+00:00",
+  "generatedAt": "2026-09-02T15:25:15+00:00",
   "dataThrough": "2026-09-02",
   "isLive": true,
   "version": "v1C",
@@ -17,17 +17,17 @@
   },
   "asOf": "Data through Wed Sep 02 \u00b7 locked 8:00 AM ET",
   "spot": {
-    "last": 90.04,
-    "chg": -0.18,
-    "chgPct": -0.2
+    "last": 90.7,
+    "chg": 0.48,
+    "chgPct": 0.53
   },
   "prediction": {
     "state": "none",
-    "probability": 0.499,
-    "rawScore": 0.4754,
+    "probability": 0.5016,
+    "rawScore": 0.4791,
     "nearEven": false,
-    "rangeLow": 88.02,
-    "rangeHigh": 92.06,
+    "rangeLow": 88.67,
+    "rangeHigh": 92.73,
     "rangePct": 2.24,
     "etfRangePct": 4.48,
     "instrument": null,
@@ -58,7 +58,7 @@
   "briefing": {
     "headline": "No edge today",
     "paragraphs": [
-      "WTI is firmer over the past week, +9.5% across five sessions, with realized volatility elevated at 2.2% daily. The model is standing down today: the signals sit too close to even to be worth a call.",
+      "WTI is firmer over the past week, +10.3% across five sessions, with realized volatility elevated at 2.2% daily. The model is standing down today: the signals sit too close to even to be worth a call.",
       "Brent trades $+4.43 against WTI. Managed-money positioning is unusually light, which leaves room for buying (the 3th percentile of the last three years).",
       "This briefing is assembled directly from the day's feature values \u2014 it says what the inputs say and nothing more. Narrative summaries of news arrive in v1D."
     ],
@@ -164,7 +164,7 @@
     83.4,
     85.76,
     90.22,
-    90.04
+    90.7
   ],
   "chart5D": [
     101.94,
@@ -256,7 +256,7 @@
     83.4,
     85.76,
     90.22,
-    90.04
+    90.7
   ],
   "scoreboard": {
     "windowLabel": "Walk-forward validation (out of sample)",
@@ -264,7 +264,7 @@
     "standDowns": 1965,
     "hits": 0,
     "accuracy": 0.5438,
-    "baseline": 0.5055,
+    "baseline": 0.5058,
     "baselineLabel": "always guess up",
     "liveAccuracy": 0.0,
     "liveResolved": 1,
@@ -295,7 +295,7 @@
         "band": "50-55%",
         "n": 2098,
         "predicted": 0.525305682360217,
-        "actual": 0.5185891325071497
+        "actual": 0.5190657769304099
       },
       {
         "band": "55-60%",
