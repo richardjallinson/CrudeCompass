@@ -613,8 +613,11 @@ function priceChart(series) {
 // headers), so it gets a one-tap button that opens it in the browser.
 const TE_URL = "https://tradingeconomics.com/commodity/crude-oil";
 const TV_SYMBOLS = [
-  { id: "TVC:USOIL", label: "WTI spot", note: "continuous, near real-time" },
-  { id: "NYMEX:CL1!", label: "CL front month", note: "what HOU/HOD track; may be delayed" },
+  // NYMEX:CL1! was here. TradingView's free embed does not resolve that
+  // futures symbol and silently falls back to its default (it rendered
+  // Apple), so it is gone rather than left to lie. USOIL tracks the front
+  // month closely, which is what HOU/HOD follow anyway.
+  { id: "TVC:USOIL", label: "WTI", note: "front-month crude, near real-time" },
   { id: "TSX:HOU", label: "HOU.TO", note: "the bull ETF itself" },
   { id: "TSX:HOD", label: "HOD.TO", note: "the bear ETF itself" }
 ];
