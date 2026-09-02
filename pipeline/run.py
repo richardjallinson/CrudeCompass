@@ -57,12 +57,18 @@ def _pull(full):
         print(f"Updating the trailing {config.UPDATE_LOOKBACK_DAYS} days (since {since}).\n")
         yrange = config.YAHOO_RANGE_UPDATE
 
+    want = fetch.expected_rows(config.HISTORY_START) if full else 0
+    short = []
     for label, spec in config.YAHOO_SERIES.items():
-        rows = fetch.fetch_yahoo(spec["symbol"], start=since, range_=yrange)
+        rows = fetch.fetch_yahoo(spec["symbol"], start=since or config.HISTORY_START)
         n = db.upsert_series("prices", spec["key"], rows)
         good = [r for r in rows if r[1] is not None]
         last = f"last {good[-1][0]} = {good[-1][1]:.2f}" if good else "no values"
-        print(f"  Yahoo {label:8s} {spec['symbol']:10s} {n:6d} rows   {last}")
+        flag = ""
+        if full and n < want * 0.5:
+            flag = f"   <-- SHORT, expected about {want}"
+            short.append(label)
+        print(f"  Yahoo {label:8s} {spec['symbol']:10s} {n:6d} rows   {last}{flag}")
 
     for label, sid in config.EIA_SERIES.items():
         rows = fetch.fetch_eia(sid, start=since)
@@ -72,11 +78,20 @@ def _pull(full):
     rows = fetch.fetch_cftc(start=since)
     n = db.upsert_series("weekly", "cftc_mm_net", rows)
     print(f"  CFTC  managed-money net             {n:6d} rows")
+    return short
 
 
 def cmd_backfill():
-    _pull(full=True)
+    short = _pull(full=True)
     print("\nBackfill complete.")
+    if short:
+        print()
+        print("WARNING: these series came back far shorter than expected: "
+              + ", ".join(short) + ".")
+        print("A short series does not fail the run - it quietly shrinks the")
+        print("sample the model trains and scores on, which usually FLATTERS")
+        print("the accuracy number. Do not trust the walk-forward line above")
+        print("until this is fixed.")
     return 0
 
 

@@ -1,4 +1,4 @@
-"""Crude Compass v1C — data fetchers.
+"""Crude Compass v1C — data fetchers (fetch.py, revision 2).
 
 Three free sources:
     Yahoo Finance  daily WTI, Brent, dollar index, natural gas (same-day close)
@@ -54,11 +54,38 @@ def _days_ago(days):
 # route now needs a session cookie. Returns the same (date, value) shape
 # every other fetcher does, so the storage layer does not care where a
 # series came from.
-def fetch_yahoo(symbol=None, start=None, range_=None):
-    """Returns list of (date_str, float_or_None), oldest first."""
+def fetch_yahoo(symbol=None, start=None, end=None, range_=None):
+    """Daily closes from Yahoo's chart endpoint.
+
+    Returns list of (date_str, float_or_None), oldest first.
+
+    Asks for an explicit period1/period2 window rather than range=max.
+    The `range` shorthand is not honoured consistently across symbol types -
+    a futures continuation, a cash index and a rolling contract can each
+    interpret "max" differently, and the first v1C run showed exactly that:
+    173 rows for CL=F and BZ=F, 68 for DX-Y.NYB, where a 2010-onward pull
+    should be roughly four thousand each. Epoch bounds are unambiguous.
+
+    `range_` is still accepted so old calls do not break; it is used only
+    when no start date is given.
+    """
     sym = symbol or config.YAHOO_SYMBOL
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}"
-    params = {"range": range_ or config.YAHOO_RANGE_BACKFILL, "interval": "1d"}
+
+    start = start or config.HISTORY_START
+    params = {"interval": "1d", "events": "history", "includeAdjustedClose": "true"}
+    if start:
+        p1 = int(_dt.datetime.strptime(start[:10], "%Y-%m-%d")
+                 .replace(tzinfo=_dt.timezone.utc).timestamp())
+        # One day past "now" so today's bar is never cut off by rounding.
+        p2 = int(_dt.datetime.now(_dt.timezone.utc).timestamp()) + 86400
+        if end:
+            p2 = int(_dt.datetime.strptime(end[:10], "%Y-%m-%d")
+                     .replace(tzinfo=_dt.timezone.utc).timestamp()) + 86400
+        params["period1"] = p1
+        params["period2"] = p2
+    else:
+        params["range"] = range_ or config.YAHOO_RANGE_BACKFILL
 
     data = _get(url, params, f"Yahoo {sym}")
 
@@ -76,26 +103,38 @@ def fetch_yahoo(symbol=None, start=None, range_=None):
     if not stamps:
         raise RuntimeError(f"Yahoo {sym} returned no rows - check the symbol")
 
-    start = start or config.HISTORY_START
     out = []
     for ts, close in zip(stamps, closes):
         # Yahoo timestamps are UTC seconds at the session open; the date is
         # what matters. A futures session opens the evening before in
         # Eastern time but the bar is stamped on the trading date.
-        date = _dt.datetime.utcfromtimestamp(ts).strftime("%Y-%m-%d")
+        date = _dt.datetime.fromtimestamp(ts, _dt.timezone.utc).strftime("%Y-%m-%d")
         if start and date < start[:10]:
             continue
         val = None if close is None else float(close)
         out.append((date, val))
 
-    # Collapse any duplicate dates, keeping the last value seen, and drop
-    # empty bars (Yahoo emits null closes on some holidays).
+    # Collapse duplicate dates, preferring a real value over a null bar.
     best = {}
     for date, val in out:
         if val is None and date in best:
             continue
         best[date] = val
     return sorted(best.items())
+
+
+def expected_rows(start):
+    """Roughly how many trading days a pull from `start` should return.
+
+    252 a year, minus a little slack. Used only to decide whether a result
+    is implausibly short - never to alter the data.
+    """
+    try:
+        d0 = _dt.datetime.strptime(start[:10], "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        return 0
+    years = max(0.0, (_dt.date.today() - d0).days / 365.25)
+    return int(years * 252 * 0.85)
 
 
 # ---------------------------------------------------------------------------
@@ -177,15 +216,24 @@ def check_sources():
     """Hit every source once and report. Run this before trusting anything."""
     results = []
 
+    want = expected_rows(config.HISTORY_START)
     for label, spec in config.YAHOO_SERIES.items():
         sym = spec["symbol"]
         try:
-            rows = fetch_yahoo(sym, range_="1y")
+            rows = fetch_yahoo(sym, start=config.HISTORY_START)
             good = [r for r in rows if r[1] is not None]
-            results.append(
-                (f"Yahoo {label} ({sym})", True,
-                 f"{len(rows)} rows, last good {good[-1][0]} = {good[-1][1]:.2f}" if good else "no values")
-            )
+            if not good:
+                results.append((f"Yahoo {label} ({sym})", False, "returned rows but no values"))
+                continue
+            detail = (f"{len(rows)} rows since {config.HISTORY_START[:10]}, "
+                      f"last good {good[-1][0]} = {good[-1][1]:.2f}")
+            # A short pull is the failure that hides: the run goes green and
+            # the model quietly trains on a fraction of the history.
+            if len(rows) < want * 0.5:
+                results.append((f"Yahoo {label} ({sym})", False,
+                                detail + f"  <-- SHORT, expected about {want}"))
+            else:
+                results.append((f"Yahoo {label} ({sym})", True, detail))
         except Exception as exc:
             results.append((f"Yahoo {label} ({sym})", False, str(exc)))
 
