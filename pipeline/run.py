@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Crude Compass v1C — the runner.
+"""Crude Compass v1C — the runner (run.py, revision 3: density check + chunked backfill).
 
     python run.py --check-sources   hit every API once, report what came back
     python run.py --backfill        download all history into the database
@@ -60,7 +60,12 @@ def _pull(full):
     want = fetch.expected_rows(config.HISTORY_START) if full else 0
     short = []
     for label, spec in config.YAHOO_SERIES.items():
-        rows = fetch.fetch_yahoo(spec["symbol"], start=since or config.HISTORY_START)
+        if full:
+            # Wide date ranges get silently downsampled by Yahoo on some
+            # symbol types if pulled in one request - see fetch_yahoo_history.
+            rows = fetch.fetch_yahoo_history(spec["symbol"], start=config.HISTORY_START)
+        else:
+            rows = fetch.fetch_yahoo(spec["symbol"], start=since)
         n = db.upsert_series("prices", spec["key"], rows)
         good = [r for r in rows if r[1] is not None]
         last = f"last {good[-1][0]} = {good[-1][1]:.2f}" if good else "no values"
@@ -96,18 +101,27 @@ def cmd_backfill():
 
 
 def _needs_backfill():
-    """True if any price series is missing or starts well after HISTORY_START.
+    """True if any price series is missing, starts late, or is too sparse.
 
-    This is what makes the v1B -> v1C switch hands-off: the first --daily on
-    a database that only has the old FRED rows for Brent, dollar and gas
-    sees the new storage keys are empty and does the full pull itself.
+    Two independent checks, because either alone missed a real failure:
+      - starts late: catches an empty series, or one that only has a
+        recent window (a genuinely short pull).
+      - too sparse: catches a series that spans the full history but at
+        the wrong density - the Yahoo downsampling bug this app hit,
+        where a 16-year span came back as ~170 monthly-ish bars with an
+        old earliest date that looked fine by the first check alone.
     """
     db.init()
     cutoff = (pd.Timestamp(config.HISTORY_START) + pd.Timedelta(days=45)).strftime("%Y-%m-%d")
+    want = fetch.expected_rows(config.HISTORY_START)
     for label, spec in config.YAHOO_SERIES.items():
         rows = db.read_series("prices", spec["key"])
         if not rows or rows[0][0] > cutoff:
             print(f"Series {label} ({spec['key']}) is missing or short; a full backfill is needed.")
+            return True
+        if len(rows) < want * 0.5:
+            print(f"Series {label} ({spec['key']}) has {len(rows)} rows, expected about {want}; "
+                  f"a full backfill is needed.")
             return True
     return False
 

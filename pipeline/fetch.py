@@ -1,4 +1,4 @@
-"""Crude Compass v1C — data fetchers (fetch.py, revision 2).
+"""Crude Compass v1C — data fetchers (fetch.py, revision 3: chunked backfill).
 
 Three free sources:
     Yahoo Finance  daily WTI, Brent, dollar index, natural gas (same-day close)
@@ -123,6 +123,46 @@ def fetch_yahoo(symbol=None, start=None, end=None, range_=None):
     return sorted(best.items())
 
 
+def fetch_yahoo_history(symbol, start=None, chunk_days=550):
+    """Full daily history, pulled in short windows and stitched together.
+
+    fetch_yahoo() alone is not safe for a 2010-to-now span. Yahoo's
+    unofficial chart endpoint appears to silently downsample when a wide
+    date range is requested at 1d interval on certain symbol types -
+    continuous futures (CL=F, BZ=F, NG=F) and the dollar index
+    (DX-Y.NYB) all showed this: a single request for the full 2010-2026
+    span came back with monthly-ish spacing (173, or 68, total bars) with
+    no error, no missing-data marker, nothing to catch programmatically.
+    It just quietly returns less than was asked for.
+
+    Requesting about 550 days (roughly 18 months) at a time stays under
+    whatever threshold triggers that behaviour, based on the same request
+    returning full daily density when the window is this size. Windows
+    are stitched with a few days of overlap so no boundary day is missed,
+    then deduplicated by date.
+    """
+    start = start or config.HISTORY_START
+    start_dt = _dt.datetime.strptime(start[:10], "%Y-%m-%d").date()
+    today = _dt.date.today()
+
+    combined = {}
+    window_start = start_dt
+    while window_start <= today:
+        window_end = min(window_start + _dt.timedelta(days=chunk_days), today)
+        rows = fetch_yahoo(symbol, start=window_start.isoformat(), end=window_end.isoformat())
+        for date, val in rows:
+            if val is None and date in combined:
+                continue
+            combined[date] = val
+        # Step forward by the full window minus a few days of overlap, so a
+        # bar that lands exactly on a boundary is never dropped.
+        window_start = window_end - _dt.timedelta(days=5)
+        if window_end >= today:
+            break
+
+    return sorted(combined.items())
+
+
 def expected_rows(start):
     """Roughly how many trading days a pull from `start` should return.
 
@@ -220,7 +260,7 @@ def check_sources():
     for label, spec in config.YAHOO_SERIES.items():
         sym = spec["symbol"]
         try:
-            rows = fetch_yahoo(sym, start=config.HISTORY_START)
+            rows = fetch_yahoo_history(sym, start=config.HISTORY_START)
             good = [r for r in rows if r[1] is not None]
             if not good:
                 results.append((f"Yahoo {label} ({sym})", False, "returned rows but no values"))
