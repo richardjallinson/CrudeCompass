@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
-"""Crude Compass v1B — the runner.
+"""Crude Compass v1C — the runner.
 
     python run.py --check-sources   hit every API once, report what came back
     python run.py --backfill        download all history into the database
+    python run.py --update          refresh the trailing window only (fast)
     python run.py --validate        walk-forward test. THE important one.
-    python run.py --daily           produce today's locked call + data.json
+    python run.py --daily           update, then produce today's locked call
     python run.py --demo            run everything on synthetic data, no keys
 
-Start with --check-sources, then --backfill, then --validate. Only wire the
-app to real output once --validate shows the model beating its baseline.
+First time on v1C: --check-sources, then --backfill (the Brent, dollar and
+natural-gas series moved to new storage keys), then --validate. After that,
+--daily does its own refresh every morning; --backfill is only for repair.
 """
 
 import argparse
@@ -38,40 +40,66 @@ def cmd_check_sources():
     return 0 if ok else 1
 
 
-def cmd_backfill():
+def _pull(full):
+    """Shared by --backfill (full=True) and --update (full=False).
+
+    Full pulls everything from HISTORY_START. Update pulls a short trailing
+    window and upserts it: same rows overwritten with the same values, new
+    rows added, nothing older touched. The prediction log is a separate
+    table and is never written here.
+    """
     db.init()
-    print(f"Backfilling from {config.HISTORY_START}.\n")
+    if full:
+        print(f"Backfilling from {config.HISTORY_START}.\n")
+        yrange, since = config.YAHOO_RANGE_BACKFILL, None
+    else:
+        since = fetch._days_ago(config.UPDATE_LOOKBACK_DAYS)
+        print(f"Updating the trailing {config.UPDATE_LOOKBACK_DAYS} days (since {since}).\n")
+        yrange = config.YAHOO_RANGE_UPDATE
 
-    # WTI comes from Yahoo, not FRED. FRED's DCOILWTICO is the official series
-    # but publishes several business days late, which made the 8am call stale
-    # before it was made. Yahoo carries the same front-month contract with a
-    # same-day close.
-    #
-    # It is stored under the FRED series id anyway, so features.py and every
-    # downstream column keep working untouched. The id is now just a storage
-    # key, not a claim about where the number came from.
-    wti_sid = config.FRED_SERIES["wti"]
-    rows = fetch.fetch_yahoo()
-    n = db.upsert_series("prices", wti_sid, rows)
-    print(f"  Yahoo {'wti':7s} {config.YAHOO_SYMBOL:16s} {n:6d} rows")
-
-    for label, sid in config.FRED_SERIES.items():
-        if label == "wti":
-            continue
-        rows = fetch.fetch_fred(sid)
-        n = db.upsert_series("prices", sid, rows)
-        print(f"  FRED {label:8s} {sid:16s} {n:6d} rows")
+    for label, spec in config.YAHOO_SERIES.items():
+        rows = fetch.fetch_yahoo(spec["symbol"], start=since, range_=yrange)
+        n = db.upsert_series("prices", spec["key"], rows)
+        good = [r for r in rows if r[1] is not None]
+        last = f"last {good[-1][0]} = {good[-1][1]:.2f}" if good else "no values"
+        print(f"  Yahoo {label:8s} {spec['symbol']:10s} {n:6d} rows   {last}")
 
     for label, sid in config.EIA_SERIES.items():
-        rows = fetch.fetch_eia(sid)
+        rows = fetch.fetch_eia(sid, start=since)
         n = db.upsert_series("weekly", sid, rows)
-        print(f"  EIA  {label:8s} {sid:24s} {n:6d} rows")
+        print(f"  EIA   {label:8s} {sid:24s} {n:6d} rows")
 
-    rows = fetch.fetch_cftc()
+    rows = fetch.fetch_cftc(start=since)
     n = db.upsert_series("weekly", "cftc_mm_net", rows)
-    print(f"  CFTC managed-money net              {n:6d} rows")
+    print(f"  CFTC  managed-money net             {n:6d} rows")
 
+
+def cmd_backfill():
+    _pull(full=True)
     print("\nBackfill complete.")
+    return 0
+
+
+def _needs_backfill():
+    """True if any price series is missing or starts well after HISTORY_START.
+
+    This is what makes the v1B -> v1C switch hands-off: the first --daily on
+    a database that only has the old FRED rows for Brent, dollar and gas
+    sees the new storage keys are empty and does the full pull itself.
+    """
+    db.init()
+    cutoff = (pd.Timestamp(config.HISTORY_START) + pd.Timedelta(days=45)).strftime("%Y-%m-%d")
+    for label, spec in config.YAHOO_SERIES.items():
+        rows = db.read_series("prices", spec["key"])
+        if not rows or rows[0][0] > cutoff:
+            print(f"Series {label} ({spec['key']}) is missing or short; a full backfill is needed.")
+            return True
+    return False
+
+
+def cmd_update():
+    _pull(full=False)
+    print("\nUpdate complete.")
     return 0
 
 
@@ -83,14 +111,21 @@ def _load_frame():
     return df
 
 
+def _score(X, y):
+    """Walk-forward probabilities, their calibrated twins, and the scorecard."""
+    probs, mask = mdl.walk_forward(X, y)
+    cal_probs, cal_mask = mdl.calibrate_walk_forward(probs, y, mask)
+    ev = mdl.evaluate(probs, y, mask, cal_probs, cal_mask)
+    return probs, mask, cal_probs, cal_mask, ev
+
+
 def cmd_validate(df=None):
     df = df if df is not None else _load_frame()
     X, y, idx, cols = feat.matrix(df)
     print(f"Feature matrix: {X.shape[0]} days, {X.shape[1]} features")
     print(f"Range: {idx[0].date()} to {idx[-1].date()}\n")
 
-    probs, mask = mdl.walk_forward(X, y)
-    ev = mdl.evaluate(probs, y, mask)
+    probs, mask, cal_probs, cal_mask, ev = _score(X, y)
     if ev is None:
         print("Not enough out-of-sample days to evaluate.", file=sys.stderr)
         return 1
@@ -102,12 +137,16 @@ def cmd_validate(df=None):
     print(f"  Model, all days           {ev['accuracy_all_days']*100:.2f}%")
     print(f"  Model, when it fired      {ev['accuracy_when_fired']*100:.2f}%  "
           f"({ev['n_fired']} calls, {ev['n_stood_down']} stand-downs)")
-    print(f"  Brier score               {ev['brier']:.4f}  (baseline {ev['brier_baseline']:.4f}, lower is better)")
+    if ev["scored_calibrated"]:
+        print(f"  Brier score (calibrated)  {ev['brier']:.4f}  (baseline {ev['brier_baseline']:.4f}, "
+              f"lower is better; {ev['n_scored']} scored days)")
+    else:
+        print(f"  Brier score (raw)         {ev['brier']:.4f}  (baseline {ev['brier_baseline']:.4f}, lower is better)")
     print()
     if ev["calibration"]:
-        print("  CALIBRATION")
+        print("  CALIBRATION" + ("  (calibrated probabilities, no look-ahead)" if ev["scored_calibrated"] else ""))
         for c in ev["calibration"]:
-            print(f"    predicted {c['predicted']*100:5.1f}%  ->  actual {c['actual']*100:5.1f}%   n={c['n']}")
+            print(f"    {c['band']:8s} said {c['predicted']*100:5.1f}%  ->  was {c['actual']*100:5.1f}%   n={c['n']}")
         print()
 
     edge = (ev["accuracy_when_fired"] - ev["baseline_up_rate"]) * 100
@@ -127,50 +166,28 @@ def cmd_validate(df=None):
         print("  is a real outcome, not a failure - and it is exactly what this")
         print("  validation exists to tell you.")
     print("-" * 58)
-
-    # Calibration check, held out honestly: fit the isotonic map on the
-    # FIRST 60% of out-of-sample days only, then test it on the LAST 40% -
-    # days the calibrator itself never saw. Anything else would be grading
-    # the calibrator's homework with the answer key already in hand.
-    oos_probs, oos_y = probs[mask], y[mask]
-    n_oos = len(oos_probs)
-    split = int(n_oos * 0.6)
-    if split >= 200 and (n_oos - split) >= 100:
-        calibrator = mdl.fit_calibrator(oos_probs[:split], oos_y[:split])
-        test_probs, test_y = oos_probs[split:], oos_y[split:]
-        raw_brier = float(np.mean((test_probs - test_y) ** 2))
-        cal_probs = np.array([mdl.calibrate(calibrator, p) for p in test_probs])
-        cal_brier = float(np.mean((cal_probs - test_y) ** 2))
-        print()
-        print("CALIBRATION CHECK (isotonic, fit on the first 60% of out-of-sample")
-        print("days, tested on the last 40% it never saw)")
-        print(f"  Raw Brier on held-out days          {raw_brier:.4f}")
-        print(f"  Calibrated Brier on held-out days   {cal_brier:.4f}")
-        if cal_brier < raw_brier:
-            print("  Calibration helps: apply it before showing a probability to a person.")
-        else:
-            print("  Calibration did not help on this split. Showing raw probabilities")
-            print("  for now; revisit once more history has accumulated.")
-    else:
-        print()
-        print("Not enough out-of-sample days yet for an honest calibration check")
-        print("(need >=200 to fit, >=100 held out to test). --daily will show raw")
-        print("probabilities until there is enough history.")
-
+    print()
+    print("  v1B reference (FRED->Yahoo swap, Aug 31 2026): fired 53.17% vs")
+    print("  baseline 50.33%, edge +2.84, Brier 0.2524. If v1C lands well")
+    print("  below that, the Brent/dollar/natgas source change cost something")
+    print("  and the two-source setup should be revisited before shipping.")
     return 0
 
 
 def cmd_daily(df=None, dry=False):
+    # A fresh call needs fresh data. Refresh the trailing window first, so
+    # the morning run is one command and never depends on a full backfill.
+    if df is None and not dry:
+        if _needs_backfill():
+            cmd_backfill()
+        else:
+            cmd_update()
+        print()
     df = df if df is not None else _load_frame()
     X, y, idx, cols = feat.matrix(df)
 
-    # Validate first so the app can display an honest scorecard. The scoreboard
-    # grades the CALIBRATED probability, because that is what the Today card
-    # shows — but calibrated walk-forward, so no day is graded by a calibrator
-    # that had already seen it.
-    probs, mask = mdl.walk_forward(X, y)
-    cal_probs, cal_mask = mdl.calibrate_walk_forward(probs, mask, y)
-    ev = mdl.evaluate(probs, y, mask, display_probs=cal_probs, display_mask=cal_mask)
+    # Validate first so the app can display an honest scorecard.
+    probs, mask, cal_probs, cal_mask, ev = _score(X, y)
 
     # Fit on everything through the last complete day, then predict the next.
     final = mdl.fit_final(X, y)
@@ -179,15 +196,21 @@ def cmd_daily(df=None, dry=False):
     state = mdl.state_for(raw_prob)
 
     # Calibrate the DISPLAYED number, not the fire/stand-down decision. The
-    # 52.98%-vs-baseline result was measured against raw thresholds, so
-    # changing what triggers a call would invalidate that measurement. What
-    # calibration fixes is a different problem: whether "58%" on the dial
-    # actually resolves 58% of the time. Fit on ALL available out-of-sample
-    # history here (unlike the held-out split in --validate, which exists
-    # only to prove the technique works before trusting it in production).
+    # fire decision is validated against raw thresholds; changing what
+    # triggers a call would invalidate that measurement. Calibration fixes a
+    # different problem: whether "58%" on the dial resolves 58% of the time.
+    # Fit on ALL out-of-sample history here; that is the map the Scoreboard
+    # also grades (walk-forward, without look-ahead) so display and score
+    # are the same number.
     calibrator = mdl.fit_calibrator(probs[mask], y[mask])
     prob = mdl.calibrate(calibrator, raw_prob)
     calibration_applied = calibrator is not None
+
+    # Honesty flag. A raw score can clear the stand-down band while its
+    # calibrated twin lands right at even, which shows on the dial as
+    # "50% DOWN". The call is legitimate - it fired on the validated rule -
+    # but the trader should know the calibrated odds are near a coin flip.
+    near_even = state != "none" and abs(prob - 0.5) < 0.03
 
     # Expected range from realized volatility.
     last_price = float(df["wti"].iloc[-1])
@@ -208,24 +231,29 @@ def cmd_daily(df=None, dry=False):
         if len(drivers) >= 4:
             break
 
-    # Next TRADING day, not next calendar day. If the last complete row is a
-    # Friday, +1 day would stamp the call for a Saturday session that never
-    # settles — the row would sit "open" in the scoreboard forever. This does
-    # not know about market holidays; a call stamped for Thanksgiving still
-    # waits an extra day for its settlement, which resolve_predictions handles
-    # because it matches on date rather than assuming the next row is the one.
+    # Next BUSINESS day. A Friday data row must produce a Monday session,
+    # not a Saturday that can never resolve.
     session_date = (idx[-1] + pd.offsets.BDay(1)).date()
+
+    lev = config.INSTRUMENTS["leverage"]
     prediction = {
         "state": state,
         "probability": round(prob, 4),
+        "rawScore": round(raw_prob, 4),
+        "nearEven": bool(near_even),
         "rangeLow": round(range_low, 2),
         "rangeHigh": round(range_high, 2),
+        # The range as a percent move, and what 2x of it looks like. That is
+        # the number that matters for sizing a HOU/HOD day trade.
+        "rangePct": round(sigma * config.RANGE_SIGMA * 100, 2),
+        "etfRangePct": round(sigma * config.RANGE_SIGMA * lev * 100, 2),
+        "instrument": (config.INSTRUMENTS[state]["ticker"] if state in ("up", "down") else None),
         "drivers": drivers,
         "caution": (
-            "Resolution happens the next morning in this version, not live at the "
-            "2:30 PM ET settlement \u2014 free data publishes end of day. "
-            "Around scheduled releases the model's read applies to the session as a "
-            "whole, not to the minutes after the print."
+            "Resolution happens the next morning, not live at the 2:30 PM ET "
+            "settlement: the pipeline runs once, before the open. Around scheduled "
+            "releases the model's read applies to the session as a whole, not to "
+            "the minutes after the print."
         ),
     }
 
@@ -268,8 +296,20 @@ def cmd_daily(df=None, dry=False):
     payload = export.build_payload(df, cols, prediction, ev, model_meta)
     path = export.write(payload)
 
+    # A one-line scorecard so the morning log (and the Actions log) shows
+    # the validation numbers without a separate --validate run.
+    if ev:
+        print(f"\nWalk-forward: fired {ev['accuracy_when_fired']*100:.2f}% vs baseline "
+              f"{ev['baseline_up_rate']*100:.2f}% on {ev['n_out_of_sample']} days; "
+              f"Brier {ev['brier']:.4f} on {ev['n_scored']} scored days.")
+
     print(f"\nSession {session_date}")
-    print(f"  {state.upper():5s}  {prob*100:.1f}%   range ${range_low:.2f}-${range_high:.2f}")
+    print(f"  {state.upper():5s}  {prob*100:.1f}% calibrated (raw {raw_prob*100:.1f}%)   "
+          f"range ${range_low:.2f}-${range_high:.2f}")
+    if prediction["instrument"]:
+        print(f"  Instrument: {prediction['instrument']}   ~{prediction['etfRangePct']:.1f}% expected range at {lev:.0f}x")
+    if near_even:
+        print("  NOTE: calibrated odds are within 3 points of even.")
     for d in drivers:
         print(f"    [{d['dir']:4s}] {d['label']}")
     print(f"\nWrote {path}")
@@ -279,18 +319,15 @@ def cmd_daily(df=None, dry=False):
 def cmd_demo():
     """Everything end-to-end on synthetic data. No API keys, no network.
 
-    This exists so the pipeline can be proven to RUN before you have keys,
-    and so a failure on real data is clearly a data problem rather than a
-    code problem. The synthetic series has no real signal in it, so the
-    validation SHOULD come back at roughly coin-flip: that is the correct
-    result and a good sanity check on the validation itself.
+    The synthetic series has no real signal in it, so the validation SHOULD
+    come back at roughly coin-flip: that is the correct result and a good
+    sanity check on the validation itself.
     """
     print("DEMO MODE \u2014 synthetic data, no network, no keys.\n")
     rng = np.random.default_rng(7)
     n = 2600
     dates = pd.bdate_range("2014-01-02", periods=n)
 
-    # Random walk with mild vol clustering, priced like WTI.
     vol = 0.018 * (1 + 0.4 * np.sin(np.arange(n) / 90.0))
     rets = rng.normal(0.0002, 1.0, n) * vol
     wti = 80 * np.exp(np.cumsum(rets))
@@ -299,13 +336,14 @@ def cmd_demo():
     gas = 3 * np.exp(np.cumsum(rng.normal(0, 0.02, n)))
 
     db.init()
-    for sid, series in (
-        (config.FRED_SERIES["wti"], wti),
-        (config.FRED_SERIES["brent"], brent),
-        (config.FRED_SERIES["dxy"], dxy),
-        (config.FRED_SERIES["natgas"], gas),
+    S = config.YAHOO_SERIES
+    for key, series in (
+        (S["wti"]["key"], wti),
+        (S["brent"]["key"], brent),
+        (S["dxy"]["key"], dxy),
+        (S["natgas"]["key"], gas),
     ):
-        db.upsert_series("prices", sid, [(str(d.date()), float(v)) for d, v in zip(dates, series)])
+        db.upsert_series("prices", key, [(str(d.date()), float(v)) for d, v in zip(dates, series)])
 
     weeks = pd.date_range(dates[0], dates[-1], freq="W-WED")
     for sid, base, scale in (
@@ -330,10 +368,11 @@ def cmd_demo():
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Crude Compass v1B pipeline")
+    ap = argparse.ArgumentParser(description="Crude Compass v1C pipeline")
     g = ap.add_mutually_exclusive_group(required=True)
     g.add_argument("--check-sources", action="store_true")
     g.add_argument("--backfill", action="store_true")
+    g.add_argument("--update", action="store_true")
     g.add_argument("--validate", action="store_true")
     g.add_argument("--daily", action="store_true")
     g.add_argument("--demo", action="store_true")
@@ -345,6 +384,8 @@ def main():
             return cmd_check_sources()
         if args.backfill:
             rc = cmd_backfill()
+        elif args.update:
+            rc = cmd_update()
         elif args.validate:
             rc = cmd_validate()
         elif args.daily:

@@ -1,4 +1,4 @@
-"""Crude Compass v1B — export.
+"""Crude Compass v1C — export.
 
 Writes web/data.json in exactly the shape app.js expects. The app falls back
 to its built-in sample data if this file is missing or malformed, so a failed
@@ -76,16 +76,17 @@ def build_payload(df, cols, prediction, evaluation, model_meta):
         "generatedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "dataThrough": str(last_date.date()),
         "isLive": True,
-        "version": "v1B",
+        "version": "v1C",
 
         # --- the honest limitation, carried in the data itself so the app
         # --- can display it without anyone having to remember to. ---------
         "limitation": (
-            "Free EIA and FRED data publishes end-of-day with a lag, so in this "
-            "local-script version a call is resolved the NEXT morning rather than "
-            "live at the 2:30 PM ET settlement. The intraday tracking strip stays "
-            "empty until a live price feed arrives in v1C."
+            "The pipeline runs once, before the open, so a call is resolved the "
+            "NEXT morning against the prior settlement rather than live at the "
+            "2:30 PM ET close. Prices are same-day closes from Yahoo Finance; the "
+            "weekly EIA and CFTC series still publish with their normal lags."
         ),
+        "instruments": config.INSTRUMENTS,
 
         "asOf": f"Data through {last_date.strftime('%a %b %d')} \u00b7 locked 8:00 AM ET",
         "spot": {
@@ -111,25 +112,21 @@ def build_payload(df, cols, prediction, evaluation, model_meta):
             "liveStands": len(stands),
             "brier": round(ev.get("brier", 0.0) or 0.0, 4),
             "brierBaseline": round(ev.get("brier_baseline", 0.0) or 0.0, 4),
-            # How many days the Brier and calibration table above cover, and
-            # whether they grade the calibrated percentage the app displays.
-            # This is smaller than the out-of-sample count: the earliest days
-            # predate any calibrator and are left ungraded rather than graded
-            # on a number the app would never have shown.
-            "scoredDays": ev.get("n_scored", 0),
-            "scoredCalibrated": ev.get("scored_calibrated", False),
             "beatsBaseline": ev.get("beats_baseline", False),
             "calibration": ev.get("calibration", []),
             "calibrationNote": _calibration_note(ev),
+            "scoredCalibrated": ev.get("scored_calibrated", False),
+            "scoredDays": ev.get("n_scored", 0),
+            "outOfSampleDays": ev.get("n_out_of_sample", 0),
             "log": log,
         },
         "sources": [
-            {"name": "FRED \u2014 WTI, Brent, dollar, natural gas", "status": f"Live \u00b7 through {last_date.date()}"},
+            {"name": "Yahoo Finance \u2014 WTI (CL=F), Brent, dollar index, natural gas", "status": f"Live \u00b7 through {last_date.date()}"},
             {"name": "EIA \u2014 crude and Cushing stocks", "status": "Live \u00b7 weekly"},
             {"name": "CFTC \u2014 managed-money positioning", "status": "Live \u00b7 weekly"},
-            {"name": "Futures curve (term structure)", "status": "Not connected \u00b7 planned v1C"},
-            {"name": "Intraday price feed", "status": "Not connected \u00b7 planned v1C"},
-            {"name": "News scoring", "status": "Not connected \u00b7 planned v1C"},
+            {"name": "Futures curve (term structure)", "status": "Not connected \u00b7 planned v1D"},
+            {"name": "Intraday price feed", "status": "Not connected \u00b7 planned v1D"},
+            {"name": "News scoring", "status": "Not connected \u00b7 planned v1D"},
         ],
         "model": model_meta,
     }
@@ -151,7 +148,7 @@ def _calibration_note(ev):
 def _briefing(df, prediction, evaluation):
     """A briefing assembled from what the data actually says.
 
-    Deliberately mechanical. v1C can write this with a language model; doing
+    Deliberately mechanical. v1D can write this with a language model; doing
     it from templates now means the app never invents a narrative the data
     does not support.
     """
@@ -190,7 +187,7 @@ def _briefing(df, prediction, evaluation):
             f"Brent trades ${bw:+.2f} against WTI. Managed-money positioning is {crowd_word} "
             f"(the {mm*100:.0f}th percentile of the last three years).",
             "This briefing is assembled directly from the day's feature values \u2014 it says what the "
-            "inputs say and nothing more. Narrative summaries of news arrive in v1C.",
+            "inputs say and nothing more. Narrative summaries of news arrive in v1D.",
         ],
         "watching": _watch_list(),
     }
@@ -201,7 +198,7 @@ def _events(last_date):
 
     These cadences are fixed by the agencies: EIA Wednesday 10:30 ET, API
     Tuesday 16:30, CFTC Friday 15:30, Baker Hughes Friday 13:00. Holiday
-    weeks shift them by a day; v1C should pull the actual published schedule.
+    weeks shift them by a day; v1D should pull the actual published schedule.
     """
     import pandas as pd
 

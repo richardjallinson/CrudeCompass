@@ -1,4 +1,4 @@
-"""Crude Compass v1B — features.
+"""Crude Compass v1C — features.
 
 Turns the stored series into one daily table the model can train on.
 
@@ -11,10 +11,12 @@ common way a project like this fools its owner.
 
 WHAT IS NOT HERE YET, and why it matters:
 
-  Term structure (M1-M3 futures spread). Called out earlier as probably the
-  single best fundamental input. It needs the futures CURVE, and FRED only
-  publishes spot. A futures source is a v1C item (Databento / Barchart /
-  CME). Its absence is the biggest known weakness of the v1B feature set.
+  Term structure (M1-M3 futures spread). Probably the single best
+  fundamental input, and still parked. Yahoo serves each contract only for
+  its own life, so a history long enough to VALIDATE the feature is not
+  available for free. Adding it unvalidated would reset the live Scoreboard
+  clock for a feature nobody has measured. A continuous back-adjusted series
+  (Databento / Barchart / CME) is the v1D route.
 
   Inventory SURPRISE (EIA actual vs. consensus). The surprise moves price,
   not the level. Consensus forecasts are a paid product. v1B uses the level
@@ -41,14 +43,15 @@ def _series_frame(table, series, name):
 
 def build():
     """Returns a DataFrame indexed by date with features + target."""
-    wti = _series_frame("prices", config.FRED_SERIES["wti"], "wti")
-    brent = _series_frame("prices", config.FRED_SERIES["brent"], "brent")
-    dxy = _series_frame("prices", config.FRED_SERIES["dxy"], "dxy")
-    natgas = _series_frame("prices", config.FRED_SERIES["natgas"], "natgas")
+    S = config.YAHOO_SERIES
+    wti = _series_frame("prices", S["wti"]["key"], "wti")
+    brent = _series_frame("prices", S["brent"]["key"], "brent")
+    dxy = _series_frame("prices", S["dxy"]["key"], "dxy")
+    natgas = _series_frame("prices", S["natgas"]["key"], "natgas")
 
     df = wti.join([brent, dxy, natgas], how="left")
-    # FRED leaves holidays blank; carry the last known price forward, then
-    # drop any leading rows that never had one.
+    # Holidays and the odd missing bar: carry the last known price forward,
+    # then drop any leading rows that never had one.
     df = df.ffill().dropna(subset=["wti"])
 
     # --- the target -------------------------------------------------------

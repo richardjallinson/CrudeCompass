@@ -1,26 +1,28 @@
-"""Crude Compass v1B — data fetchers.
+"""Crude Compass v1C — data fetchers.
 
-Three free, commercially usable sources:
-    FRED  (St. Louis Fed)  daily WTI, Brent, dollar index, natural gas
-    EIA   (US government)  weekly crude and Cushing stocks
-    CFTC  (US government)  weekly managed-money positioning
+Three free sources:
+    Yahoo Finance  daily WTI, Brent, dollar index, natural gas (same-day close)
+    EIA            weekly crude and Cushing stocks
+    CFTC           weekly managed-money positioning
 
-UNTESTED AGAINST LIVE ENDPOINTS. This code was written without network
-access, so the request shapes follow each provider's published documentation
-but have never actually been run. Expect one or two small fixes on your first
-run — a renamed JSON field, a facet parameter, a series ID. Run
-`python run.py --check-sources` first: it hits each source once and reports
-exactly what came back.
+FRED is gone as of v1C. Its price series were republished EIA/Fed data with
+a lag of several business days, which meant the 8:00 AM call was reasoning
+about last week. Yahoo's chart endpoint posts the close the same evening.
+It is unofficial and occasionally changes shape; `python run.py
+--check-sources` hits every source once and reports exactly what came back,
+so run that first after any upgrade.
 """
 
+import datetime as _dt
 import time
+
 import requests
 
 import config
 
 TIMEOUT = 30
 RETRIES = 3
-USER_AGENT = "CrudeCompass/1B (personal research)"
+USER_AGENT = "CrudeCompass/1C (personal research)"
 
 
 def _get(url, params, label):
@@ -41,49 +43,22 @@ def _get(url, params, label):
     raise RuntimeError(f"{label} failed after {RETRIES} attempts. {last}")
 
 
+def _days_ago(days):
+    return (_dt.date.today() - _dt.timedelta(days=days)).isoformat()
+
+
 # ---------------------------------------------------------------------------
-# FRED
+# Yahoo Finance - daily closes, no API key
 # ---------------------------------------------------------------------------
-def fetch_fred(series_id, start=None):
+# Uses the chart JSON endpoint, not the old CSV download, because the CSV
+# route now needs a session cookie. Returns the same (date, value) shape
+# every other fetcher does, so the storage layer does not care where a
+# series came from.
+def fetch_yahoo(symbol=None, start=None, range_=None):
     """Returns list of (date_str, float_or_None), oldest first."""
-    if not config.FRED_API_KEY:
-        raise RuntimeError(
-            "FRED_API_KEY is not set. Get a free key at "
-            "https://fredaccount.stlouisfed.org/apikeys and put it in pipeline/.env"
-        )
-    params = {
-        "series_id": series_id,
-        "api_key": config.FRED_API_KEY,
-        "file_type": "json",
-        "observation_start": start or config.HISTORY_START,
-    }
-    data = _get(config.FRED_BASE, params, f"FRED {series_id}")
-    out = []
-    for obs in data.get("observations", []):
-        raw = obs.get("value")
-        # FRED writes "." for a missing observation (holidays, etc).
-        val = None if raw in (None, ".", "") else float(raw)
-        out.append((obs["date"], val))
-    return out
-
-
-# ---------------------------------------------------------------------------
-# Yahoo Finance - front-month WTI, no API key, same-day close
-# ---------------------------------------------------------------------------
-# FRED's DCOILWTICO is official but lags several business days, which makes the
-# morning call stale before it is even made. Yahoo carries the same continuous
-# front-month contract (CL=F) and posts the close the same evening.
-#
-# This uses Yahoo's chart JSON endpoint, not the old CSV download, because the
-# CSV route now needs a session cookie. Same return shape as fetch_fred(), so
-# it is a drop-in replacement for the WTI series.
-def fetch_yahoo(symbol=None, start=None):
-    """Returns list of (date_str, float_or_None), oldest first."""
-    import datetime as _dt
-
     sym = symbol or config.YAHOO_SYMBOL
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}"
-    params = {"range": "10y", "interval": "1d"}
+    params = {"range": range_ or config.YAHOO_RANGE_BACKFILL, "interval": "1d"}
 
     data = _get(url, params, f"Yahoo {sym}")
 
@@ -101,18 +76,24 @@ def fetch_yahoo(symbol=None, start=None):
     if not stamps:
         raise RuntimeError(f"Yahoo {sym} returned no rows - check the symbol")
 
+    start = start or config.HISTORY_START
     out = []
     for ts, close in zip(stamps, closes):
-        # Yahoo timestamps are UTC seconds at market open; the date is what matters.
+        # Yahoo timestamps are UTC seconds at the session open; the date is
+        # what matters. A futures session opens the evening before in
+        # Eastern time but the bar is stamped on the trading date.
         date = _dt.datetime.utcfromtimestamp(ts).strftime("%Y-%m-%d")
         if start and date < start[:10]:
             continue
         val = None if close is None else float(close)
         out.append((date, val))
 
-    # Collapse any duplicate dates, keeping the last value seen.
+    # Collapse any duplicate dates, keeping the last value seen, and drop
+    # empty bars (Yahoo emits null closes on some holidays).
     best = {}
     for date, val in out:
+        if val is None and date in best:
+            continue
         best[date] = val
     return sorted(best.items())
 
@@ -155,10 +136,7 @@ def fetch_eia(series_id, start=None):
 def fetch_cftc(start=None):
     """Managed-money net length for NYMEX WTI.
 
-    Returns list of (date_str, net_contracts). The Socrata field names below
-    follow the published disaggregated schema; if a field is missing on your
-    first run, print one record and adjust — the endpoint is stable but the
-    column naming has drifted across CFTC's report generations.
+    Returns list of (date_str, net_contracts).
     """
     params = {
         "$where": f"report_date_as_yyyy_mm_dd >= '{(start or config.HISTORY_START)[:10]}T00:00:00'",
@@ -199,26 +177,17 @@ def check_sources():
     """Hit every source once and report. Run this before trusting anything."""
     results = []
 
-    try:
-        rows = fetch_yahoo()
-        good = [r for r in rows if r[1] is not None]
-        results.append(
-            (f"Yahoo WTI ({config.YAHOO_SYMBOL})", True,
-             f"{len(rows)} rows, last good {good[-1][0]} = {good[-1][1]}" if good else "no values")
-        )
-    except Exception as exc:
-        results.append((f"Yahoo WTI ({config.YAHOO_SYMBOL})", False, str(exc)))
-
-    for label, sid in config.FRED_SERIES.items():
+    for label, spec in config.YAHOO_SERIES.items():
+        sym = spec["symbol"]
         try:
-            rows = fetch_fred(sid, start="2024-01-01")
+            rows = fetch_yahoo(sym, range_="1y")
             good = [r for r in rows if r[1] is not None]
             results.append(
-                (f"FRED {label} ({sid})", True,
-                 f"{len(rows)} rows, last good {good[-1][0]} = {good[-1][1]}" if good else "no values")
+                (f"Yahoo {label} ({sym})", True,
+                 f"{len(rows)} rows, last good {good[-1][0]} = {good[-1][1]:.2f}" if good else "no values")
             )
         except Exception as exc:
-            results.append((f"FRED {label} ({sid})", False, str(exc)))
+            results.append((f"Yahoo {label} ({sym})", False, str(exc)))
 
     for label, sid in config.EIA_SERIES.items():
         try:

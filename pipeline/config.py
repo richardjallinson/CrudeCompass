@@ -1,12 +1,11 @@
-"""Crude Compass v1B — configuration.
+"""Crude Compass v1C — configuration.
 
 Everything tunable lives here. No API keys in code: put them in a .env file
 next to this one, or export them in your shell.
 
     EIA_API_KEY   free, instant:  https://www.eia.gov/opendata/register.php
-    FRED_API_KEY  free, instant:  https://fredaccount.stlouisfed.org/apikeys
 
-CFTC needs no key at all.
+CFTC needs no key. Yahoo Finance needs no key. FRED is no longer used (v1C).
 """
 
 import os
@@ -36,32 +35,50 @@ def _load_dotenv():
 _load_dotenv()
 
 EIA_API_KEY = os.environ.get("EIA_API_KEY", "")
+# Kept only so an old .env or an old GitHub secret does not break anything.
 FRED_API_KEY = os.environ.get("FRED_API_KEY", "")
 
 
 # --- data sources ----------------------------------------------------------
-# FRED daily series. These are the free, official, commercially usable ones.
+# Daily prices: all four now come from Yahoo Finance's chart endpoint.
 #
-# NOTE: series IDs are stable at FRED but VERIFY each one loads before
-# trusting a run. `python run.py --check-sources` does exactly that.
-FRED_SERIES = {
-    # WTI spot, Cushing OK, USD/bbl, daily. The app's headline price in v1B.
-    "wti": "DCOILWTICO",
-    # Brent spot, for the Brent-WTI spread.
-    "brent": "DCOILBRENTEU",
-    # Broad trade-weighted US dollar index, daily.
-    "dxy": "DTWEXBGS",
-    # Henry Hub natural gas, daily. Weak signal alone, cheap to carry.
-    "natgas": "DHHNGSP",
+# WHY. v1B moved WTI from FRED to Yahoo because FRED's DCOILWTICO lagged
+# about four business days, so the 8:00 AM call was about last week. The
+# other three series had the same problem and were still on FRED (the
+# broad dollar index there is published WEEKLY, so dxy_ret_1 was always a
+# week old). v1C puts them all on the same same-day-close feed.
+#
+# CL=F is the continuous front-month WTI contract. That is also what the
+# BetaPro Crude Oil Rolling Futures Index behind HOU/HOD tracks, which
+# makes it a better target for that trade than the Cushing spot print.
+#
+# Storage keys: the value in this dict is the row key in the `prices`
+# table. WTI keeps FRED's old id so the existing database and the live
+# Scoreboard history carry over untouched (the id is just a label now).
+# The other three get new keys so no stale FRED row can mix in.
+YAHOO_SERIES = {
+    "wti":    {"symbol": "CL=F",     "key": "DCOILWTICO"},
+    "brent":  {"symbol": "BZ=F",     "key": "YF_BZ"},
+    "dxy":    {"symbol": "DX-Y.NYB", "key": "YF_DXY"},
+    "natgas": {"symbol": "NG=F",     "key": "YF_NG"},
 }
-FRED_BASE = "https://api.stlouisfed.org/fred/series/observations"
+# Still referenced by name in a couple of places from v1B.
+YAHOO_SYMBOL = YAHOO_SERIES["wti"]["symbol"]
 
-# --- Yahoo Finance: same-day WTI -------------------------------------------
-# FRED publishes DCOILWTICO several business days late, which makes the 8am
-# call stale before it is made. Yahoo carries the continuous front-month WTI
-# contract as CL=F and posts the close the same evening, free and keyless.
-# Stooq was tried first and blocks its CSV endpoint from ordinary connections.
-YAHOO_SYMBOL = "CL=F"
+# Yahoo chart ranges. Backfill pulls everything; the daily update pulls a
+# short trailing window and upserts it over what is already stored.
+YAHOO_RANGE_BACKFILL = "max"
+YAHOO_RANGE_UPDATE = "3mo"
+
+# Weekly sources (EIA, CFTC): how far back the daily update re-pulls. Both
+# publish with a lag and occasionally revise, so a generous window is cheap
+# insurance. Days.
+UPDATE_LOOKBACK_DAYS = 60
+
+# Legacy. Nothing in v1C fetches from FRED; these stay so old code paths
+# that mention FRED resolve to "nothing to do" rather than crash.
+FRED_SERIES = {}
+FRED_BASE = "https://api.stlouisfed.org/fred/series/observations"
 
 # EIA v2 weekly petroleum stocks.
 #   WCESTUS1              US crude oil stocks excluding SPR, thousand barrels
@@ -80,6 +97,18 @@ CFTC_BASE = "https://publicreporting.cftc.gov/resource/72hh-3qpy.json"
 CFTC_CONTRACT_MATCH = "CRUDE OIL, LIGHT SWEET"  # matched case-insensitively
 
 
+# --- the trade this app supports ------------------------------------------
+# Shown on the Today card so the lean reads in the instrument actually
+# traded. Both are 2x daily and, per their fact sheets, hedge USD back to
+# CAD at all times, so the WTI direction is the whole trade: there is no
+# separate currency leg to worry about.
+INSTRUMENTS = {
+    "up":   {"ticker": "HOU.TO", "name": "BetaPro Crude Oil Leveraged Daily Bull"},
+    "down": {"ticker": "HOD.TO", "name": "BetaPro Crude Oil Inverse Leveraged Daily Bear"},
+    "leverage": 2.0,
+}
+
+
 # --- model -----------------------------------------------------------------
 # History start. 2010 onward keeps the sample modern (shale era) while still
 # giving ~3,900 trading days.
@@ -95,6 +124,9 @@ STAND_DOWN_HIGH = 0.55
 # next block, step forward, repeat. Never train on the future.
 WALKFORWARD_MIN_TRAIN = 750   # ~3 years before the first out-of-sample call
 WALKFORWARD_STEP = 21         # refit monthly
+
+# Calibration needs this many prior out-of-sample days before it is trusted.
+CALIBRATION_MIN_DAYS = 200
 
 # Expected-range width. 1.0 sigma ~= 68% of days land inside.
 RANGE_SIGMA = 1.0
