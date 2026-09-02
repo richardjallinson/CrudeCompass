@@ -339,14 +339,12 @@ function Dial(props) {
   const p = props.probability;
   const color = state === "up" ? T.up : state === "down" ? T.down : T.neutral;
 
-  const cx = 110, cy = 110, r = 86;
+  const cx = 110, cy = 110, r = 84;
   // Probability -> angle, one continuous mapping. 0.5 sits due east, 0.70+
-  // is full north (up), 0.30- is full south (down).
-  //
-  // The old version derived the angle from state and clamped conviction at
-  // zero, which meant any down lean below 50% - the common case, since the
-  // number shown is the probability of an UP close - parked the needle due
-  // east and looked identical to a stand-down. A down day pointed nowhere.
+  // is full north (up), 0.30- is full south (down). The number shown is the
+  // probability of an UP close, so a down lean is BELOW 0.5 and must swing
+  // south; the old version clamped that at zero and parked every down call
+  // due east, indistinguishable from a stand-down.
   const CONV = 0.20;
   function angleFor(prob) {
     let k = (prob - 0.5) / CONV;
@@ -359,49 +357,46 @@ function Dial(props) {
   }
   function arc(fromDeg, toDeg, radius) {
     const s = pt(fromDeg, radius), e = pt(toDeg, radius);
-    const large = Math.abs(toDeg - fromDeg) > 180 ? 1 : 0;
     return "M " + fmt(s[0], 2) + " " + fmt(s[1], 2) + " A " + radius + " " + radius +
-      " 0 " + large + " 1 " + fmt(e[0], 2) + " " + fmt(e[1], 2);
+      " 0 0 1 " + fmt(e[0], 2) + " " + fmt(e[1], 2);
   }
 
   const deg = angleFor(p);
   const rad = deg * Math.PI / 180;
-  const nx = cx + r * 0.78 * Math.cos(rad);
-  const ny = cy + r * 0.78 * Math.sin(rad);
+  const tip = pt(deg, r * 0.74);
 
-  // The stand-down band, drawn from the same thresholds the model uses.
-  // Seeing how close today sits to the edge of this band is the point: a
-  // fired call one point outside it is not the same animal as a 60% call,
-  // and the dial should not flatten that difference.
-  const bandLow = angleFor(STAND_DOWN[1]);   // upper prob -> north edge
-  const bandHigh = angleFor(STAND_DOWN[0]);  // lower prob -> south edge
+  // The stand-down band, from the same thresholds the model uses. It is
+  // the darkest thing on the dial on purpose: how close today sits to its
+  // edge is the information a thin call needs to carry.
+  const bandN = angleFor(STAND_DOWN[1]);
+  const bandS = angleFor(STAND_DOWN[0]);
 
+  // Ticks sit just inside the track. Cardinal ticks (up, even, down) in
+  // brass and a touch longer; the rest quiet.
   const ticks = [];
   for (let a = -90; a <= 90; a += 15) {
     const big = a === -90 || a === 0 || a === 90;
-    const i = pt(a, r + 4), o = pt(a, r + (big ? 14 : 9));
+    const o = pt(a, r - 7), i = pt(a, r - (big ? 16 : 12));
     ticks.push(h("line", {
-      key: "t" + a, x1: i[0], y1: i[1], x2: o[0], y2: o[1],
-      stroke: big ? T.brass : T.line, strokeWidth: big ? 2 : 1, strokeLinecap: "round"
+      key: "t" + a, x1: o[0], y1: o[1], x2: i[0], y2: i[1],
+      stroke: big ? T.brass : T.line, strokeWidth: big ? 2 : 1.2, strokeLinecap: "round"
     }));
   }
 
-  const inBand = p > STAND_DOWN[0] && p < STAND_DOWN[1];
-
-  return h("svg", { width: "100%", viewBox: "0 0 220 232", role: "img",
+  return h("svg", { width: "100%", viewBox: "0 0 220 220", role: "img",
     "aria-label": state === "none" ? "No edge today, inside the stand-down band"
       : ("Model lean " + (state === "up" ? "up" : "down") + " at " + Math.round(p * 100) + " percent") },
-    // Track, then the stand-down band painted over it.
-    h("path", { d: arc(-90, 90, r), fill: "none", stroke: T.btn2, strokeWidth: 13, strokeLinecap: "round" }),
-    h("path", { d: arc(bandLow, bandHigh, r), fill: "none", stroke: T.neutralSoft, strokeWidth: 13 }),
-    h("path", { d: arc(bandLow, bandHigh, r), fill: "none", stroke: T.neutral, strokeWidth: 13, opacity: 0.18 }),
+    // Bezel: a thin full ring outside the track, so it reads as an instrument.
+    h("circle", { cx: cx, cy: cy, r: r + 10, fill: "none", stroke: T.line, strokeWidth: 1.2 }),
+    // Track, then the band painted over it.
+    h("path", { d: arc(-90, 90, r), fill: "none", stroke: T.line, strokeWidth: 9 }),
+    h("path", { d: arc(bandN, bandS, r), fill: "none", stroke: T.neutral, strokeWidth: 9 }),
     ticks,
-    h("text", { x: cx, y: 14, fill: T.up, fontFamily: font.body, fontSize: 12.5, fontWeight: 800, textAnchor: "middle" }, "UP"),
-    h("text", { x: cx, y: 224, fill: T.down, fontFamily: font.body, fontSize: 12.5, fontWeight: 800, textAnchor: "middle" }, "DOWN"),
-    // Needle. A short counterweight behind the pivot so it reads as a
-    // balanced instrument rather than a pointer stuck on a dot.
+    h("text", { x: cx + r + 6, y: cy - r + 2, fill: T.up, fontFamily: font.body, fontSize: 13, fontWeight: 800, textAnchor: "end" }, "UP"),
+    h("text", { x: cx + r + 6, y: cy + r + 7, fill: T.down, fontFamily: font.body, fontSize: 13, fontWeight: 800, textAnchor: "end" }, "DOWN"),
+    // Needle with a short counterweight behind the pivot.
     h("line", {
-      x1: cx - 17 * Math.cos(rad), y1: cy - 17 * Math.sin(rad), x2: nx, y2: ny,
+      x1: cx - 16 * Math.cos(rad), y1: cy - 16 * Math.sin(rad), x2: tip[0], y2: tip[1],
       stroke: color, strokeWidth: 5, strokeLinecap: "round"
     }),
     h("circle", { cx: cx, cy: cy, r: 33, fill: T.card, stroke: T.line, strokeWidth: 1 }),
@@ -409,8 +404,7 @@ function Dial(props) {
     h("text", { x: cx, y: cy - 5, fill: color, fontFamily: font.mono, fontSize: 25, fontWeight: 700, textAnchor: "middle" },
       state === "none" ? "\u2014" : Math.round(p * 100) + "%"),
     h("text", { x: cx, y: cy + 14, fill: T.inkSoft, fontFamily: font.body, fontSize: 10, fontWeight: 700, letterSpacing: 0.9, textAnchor: "middle" },
-      state === "none" ? "NO EDGE" : (state === "up" ? "UP CLOSE" : "DOWN CLOSE")),
-    inBand ? null : h("text", { x: cx, y: cy + 26, fill: T.inkSoft, fontFamily: font.body, fontSize: 9, textAnchor: "middle" }, "outside band")
+      state === "none" ? "NO EDGE" : (state === "up" ? "UP CLOSE" : "DOWN CLOSE"))
   );
 }
 
