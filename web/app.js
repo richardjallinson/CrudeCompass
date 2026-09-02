@@ -14,21 +14,20 @@
 const { useState, useEffect } = React;
 const h = React.createElement;
 
-const APP_VERSION = "v1B";
+const APP_VERSION = "v1C";
 
-// ---- KNOWN LIMITATION OF v1B — read this before trusting the Scoreboard.
+// ---- KNOWN LIMITATION OF v1C — read this before trusting the Scoreboard.
 //
-//   Free EIA and FRED data publishes end-of-day with a lag, so in the
-//   local-script version a call is resolved the NEXT MORNING rather than
-//   live at the 2:30 PM ET settlement. The intraday tracking strip — the
-//   "locked 8:00 AM · now $83.40 · on side · 2h to settlement" line — stays
-//   empty until a live price feed arrives in v1C.
+//   The pipeline runs once, before the open, so a call is resolved the NEXT
+//   MORNING against the prior settlement rather than live at the 2:30 PM ET
+//   close. The intraday tracking strip stays empty until a live feed and an
+//   afternoon run arrive in v1D.
 //
 //   The call itself is still locked at 8:00 AM and never revised. Only the
 //   moment of resolution moves: next morning instead of same afternoon.
 //
-// This same text is carried in data.json (payload.limitation), shown on the
-// Settings screen, and repeated in README-V1B.txt. Three places on purpose.
+// This same text is carried in data.json (payload.limitation) and shown on
+// the Settings screen.
 
 // ---- Palettes. Dark is the primary theme: this app is used at a trading
 // screen, often before sunrise. The ground is a warm crude-brown black
@@ -258,29 +257,28 @@ const sampleData = {
 let D = sampleData;
 
 // How old the data is allowed to be before the app calls it stale, counted
-// in BUSINESS days. Calendar days would climb over every weekend and cry
-// wolf on Sunday and Monday morning when nothing is wrong — and a warning
-// that is usually wrong is one you learn to ignore.
-const STALE_DAYS = 3;
+// in BUSINESS days. Calendar days made the banner cry wolf every Sunday and
+// Monday: a Monday morning open legitimately sees Friday's close. Two
+// business days is one missed pipeline run, which is exactly what the
+// banner exists to catch.
+const STALE_BUSINESS_DAYS = 2;
 
 function dataAgeDays() {
   if (!D.dataThrough) return null;
   const then = new Date(D.dataThrough + "T00:00:00");
   if (isNaN(then.getTime())) return null;
-
-  // Walk forward day by day from the data date to today, counting only
-  // Mon-Fri. Holidays still count as business days here, so a long weekend
-  // can cost one day of headroom; that is the safe direction to be wrong in.
+  // Count weekdays strictly after the data date, up to and including today.
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  let count = 0;
-  const cur = new Date(then.getFullYear(), then.getMonth(), then.getDate());
-  while (cur < today) {
-    cur.setDate(cur.getDate() + 1);
-    const dow = cur.getDay();
-    if (dow !== 0 && dow !== 6) count++;
+  let d = new Date(then.getFullYear(), then.getMonth(), then.getDate());
+  let n = 0;
+  while (d < today) {
+    d.setDate(d.getDate() + 1);
+    const dow = d.getDay();
+    if (dow !== 0 && dow !== 6) n += 1;
+    if (n > 60) break;
   }
-  return count;
+  return n;
 }
 
 function loadData() {
@@ -421,8 +419,34 @@ function TodayScreen() {
       h("div", { style: { fontFamily: font.body, fontSize: 12.5, color: T.inkSoft, marginTop: 5, lineHeight: 1.5 } },
         P.state === "none"
           ? "The signals disagree or sit too close to even. A model that forces a call every day is a coin flip; today it stays quiet."
-          : "Locked before the session and never revised mid-day. A prediction that updates as price moves is just narrating.")
+          : "Locked before the session and never revised mid-day. A prediction that updates as price moves is just narrating."),
+      // Calibrated odds can land at even while the raw score still clears
+      // the stand-down band. The call is legitimate - it fired on the
+      // validated rule - but "50% DOWN" deserves a sentence.
+      P.nearEven ? h("div", { style: { fontFamily: font.body, fontSize: 11.5, color: T.amber, marginTop: 8, lineHeight: 1.5, fontWeight: 700 } },
+        "Calibrated odds are within a few points of even. The lean fired on the raw score" +
+        (P.rawScore !== undefined ? " (" + Math.round(P.rawScore * 100) + "%)" : "") + "; size it like a coin flip, not a conviction.") : null
     ),
+
+    // The instrument. The lean is about WTI; the trade is HOU or HOD.
+    (function () {
+      const I = D.instruments || {};
+      const lev = I.leverage || 2;
+      const which = P.state === "up" ? I.up : P.state === "down" ? I.down : null;
+      const etfPct = P.etfRangePct !== undefined ? P.etfRangePct : (P.rangePct !== undefined ? P.rangePct * lev : null);
+      return h(Card, { style: { padding: "13px 16px" } },
+        SectionLabel("In the instrument you trade"),
+        h("div", { style: { display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" } },
+          h("div", { style: { fontFamily: font.mono, fontSize: 22, fontWeight: 700, color: stateColor } },
+            which ? which.ticker : "FLAT"),
+          h("div", { style: { fontFamily: font.body, fontSize: 12.5, color: T.inkSoft, lineHeight: 1.4, minWidth: 0, flex: "1 1 160px" } },
+            which
+              ? (which.name + (etfPct ? " \u00b7 expected range about \u00b1" + fmt(etfPct, 1) + "% at " + lev + "x" : ""))
+              : "No edge means no position. Sitting out is the trade.")),
+        h("div", { style: { fontFamily: font.body, fontSize: 11.5, color: T.inkSoft, marginTop: 8, lineHeight: 1.5 } },
+          "Both ETFs track the daily move of the front-month WTI contract at " + lev + "x and hedge USD back to CAD, so the WTI direction is the whole trade. Same-day only: the daily reset makes overnight holds a different bet.")
+      );
+    })(),
 
     // Expected range
     h(Card, null,
@@ -433,7 +457,8 @@ function TodayScreen() {
         h("div", { style: { position: "absolute", left: (lastPos * 100) + "%", top: -4, transform: "translateX(-50%)",
           width: 3, height: 18, borderRadius: 2, background: T.brass } })),
       h("div", { style: { fontFamily: font.body, fontSize: 11.5, color: T.inkSoft, marginTop: 8, lineHeight: 1.5 } },
-        "From realized and implied volatility. The range is the more reliable number on this screen: direction is a lean, the range is a forecast.")
+        "From realized volatility (one sigma, about 68% of days). The range is the more reliable number on this screen: direction is a lean, the range is a forecast." +
+        (P.rangePct !== undefined ? " That is \u00b1" + fmt(P.rangePct, 1) + "% on WTI." : ""))
     ),
 
     // Drivers
@@ -603,7 +628,8 @@ function ScoreboardScreen() {
       S.brier ? h("div", { style: { fontFamily: font.body, fontSize: 11.5, color: T.inkSoft, lineHeight: 1.55, marginTop: 10, borderTop: "1px solid " + T.line, paddingTop: 10 } },
         "Brier score ", h("span", { style: { fontFamily: font.mono, fontWeight: 700, color: T.ink } }, fmt(S.brier, 4)),
         " against a baseline of ", h("span", { style: { fontFamily: font.mono, fontWeight: 700, color: T.ink } }, fmt(S.brierBaseline, 4)),
-        ". This scores the probability itself, not just the direction \u2014 lower is better.") : null
+        ". This scores the probability itself, not just the direction \u2014 lower is better." +
+        (S.scoredCalibrated ? " Graded on the same calibrated probabilities the dial shows, with no look-ahead, across " + S.scoredDays + " out-of-sample days." : "")) : null
     ) : null,
 
     // Calibration. A 58% that resolves 58% of the time is worth acting on;
@@ -667,7 +693,7 @@ function SettingsScreen(props) {
       SectionLabel("Known limitation in this version"),
       h("div", { style: { fontFamily: font.body, fontSize: 13, color: T.ink, lineHeight: 1.6 } },
         D.limitation ||
-        "Free EIA and FRED data publishes end-of-day with a lag, so in this local-script version a call is resolved the next morning rather than live at the 2:30 PM ET settlement. The intraday tracking strip stays empty until a live price feed arrives in v1C."),
+        "The pipeline runs once, before the open, so a call is resolved the next morning rather than live at the 2:30 PM ET close. The intraday tracking strip stays empty until a live price feed arrives in v1D."),
       h("div", { style: { fontFamily: font.body, fontSize: 12, color: T.inkSoft, lineHeight: 1.6, marginTop: 8 } },
         "The call itself is still locked at 8:00 AM and never revised. Only the moment of resolution moves.")
     ),
@@ -785,13 +811,13 @@ function App() {
       if (!D.isLive) {
         return h("div", { style: { background: T.amberSoft, borderBottom: "1px solid " + T.amber, padding: "8px 16px",
           fontFamily: font.body, fontSize: 11.5, fontWeight: 700, color: T.ink, textAlign: "center" } },
-          "Sample data \u2014 every number is a placeholder. Run the v1B pipeline to populate data.json.");
+          "Sample data \u2014 every number is a placeholder. Run the pipeline to populate data.json.");
       }
       const age = dataAgeDays();
-      if (age !== null && age > STALE_DAYS) {
+      if (age !== null && age > STALE_BUSINESS_DAYS) {
         return h("div", { style: { background: T.cardDown, borderBottom: "1px solid " + T.down, padding: "8px 16px",
           fontFamily: font.body, fontSize: 11.5, fontWeight: 700, color: T.down, textAlign: "center" } },
-          "Stale \u2014 data is " + age + " business day" + (age === 1 ? "" : "s") + " old. The pipeline has not run. Do not act on this screen.");
+          "Stale \u2014 data is " + age + " trading days old. The pipeline has not run. Do not act on this screen.");
       }
       return h("div", { style: { background: T.brassSoft, borderBottom: "1px solid " + T.line, padding: "7px 16px",
         fontFamily: font.body, fontSize: 11, fontWeight: 700, color: T.brass, textAlign: "center", letterSpacing: 0.3 } },
