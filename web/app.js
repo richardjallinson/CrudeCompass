@@ -263,6 +263,12 @@ let D = sampleData;
 // banner exists to catch.
 const STALE_BUSINESS_DAYS = 2;
 
+// The stand-down band, as [low, high] probabilities. The pipeline ships the
+// real values in model.standDownBand; this default only covers a stale or
+// sample payload. The dial shades this zone, so a wrong value here would be
+// a lie drawn on the instrument.
+let STAND_DOWN = [0.45, 0.55];
+
 function dataAgeDays() {
   if (!D.dataThrough) return null;
   const then = new Date(D.dataThrough + "T00:00:00");
@@ -292,6 +298,8 @@ function loadData() {
     .then(function (json) {
       if (!json || !json.prediction || !json.spot) throw new Error("malformed data.json");
       D = json;
+      const band = json.model && json.model.standDownBand;
+      if (band && band.length === 2 && band[0] < band[1]) STAND_DOWN = [band[0], band[1]];
       return true;
     })
     .catch(function () {
@@ -330,41 +338,79 @@ function Dial(props) {
   const state = props.state;
   const p = props.probability;
   const color = state === "up" ? T.up : state === "down" ? T.down : T.neutral;
-  // Map conviction to angle. 0.5 -> 0 (east). 0.70+ -> +/-90 (north/south).
-  const conviction = Math.max(0, Math.min(1, (p - 0.5) / 0.2));
-  const deg = state === "up" ? -90 * conviction : state === "down" ? 90 * conviction : 0;
-  const rad = deg * Math.PI / 180;
+
   const cx = 110, cy = 110, r = 86;
-  const nx = cx + r * 0.82 * Math.cos(rad);
-  const ny = cy + r * 0.82 * Math.sin(rad);
-  // Tick marks every 15 degrees along the east-facing half circle.
+  // Probability -> angle, one continuous mapping. 0.5 sits due east, 0.70+
+  // is full north (up), 0.30- is full south (down).
+  //
+  // The old version derived the angle from state and clamped conviction at
+  // zero, which meant any down lean below 50% - the common case, since the
+  // number shown is the probability of an UP close - parked the needle due
+  // east and looked identical to a stand-down. A down day pointed nowhere.
+  const CONV = 0.20;
+  function angleFor(prob) {
+    let k = (prob - 0.5) / CONV;
+    k = Math.max(-1, Math.min(1, k));
+    return -90 * k;
+  }
+  function pt(deg, radius) {
+    const a = deg * Math.PI / 180;
+    return [cx + radius * Math.cos(a), cy + radius * Math.sin(a)];
+  }
+  function arc(fromDeg, toDeg, radius) {
+    const s = pt(fromDeg, radius), e = pt(toDeg, radius);
+    const large = Math.abs(toDeg - fromDeg) > 180 ? 1 : 0;
+    return "M " + fmt(s[0], 2) + " " + fmt(s[1], 2) + " A " + radius + " " + radius +
+      " 0 " + large + " 1 " + fmt(e[0], 2) + " " + fmt(e[1], 2);
+  }
+
+  const deg = angleFor(p);
+  const rad = deg * Math.PI / 180;
+  const nx = cx + r * 0.78 * Math.cos(rad);
+  const ny = cy + r * 0.78 * Math.sin(rad);
+
+  // The stand-down band, drawn from the same thresholds the model uses.
+  // Seeing how close today sits to the edge of this band is the point: a
+  // fired call one point outside it is not the same animal as a 60% call,
+  // and the dial should not flatten that difference.
+  const bandLow = angleFor(STAND_DOWN[1]);   // upper prob -> north edge
+  const bandHigh = angleFor(STAND_DOWN[0]);  // lower prob -> south edge
+
   const ticks = [];
   for (let a = -90; a <= 90; a += 15) {
-    const t = a * Math.PI / 180;
     const big = a === -90 || a === 0 || a === 90;
+    const i = pt(a, r + 4), o = pt(a, r + (big ? 14 : 9));
     ticks.push(h("line", {
-      key: "t" + a,
-      x1: cx + (r - (big ? 12 : 6)) * Math.cos(t), y1: cy + (r - (big ? 12 : 6)) * Math.sin(t),
-      x2: cx + r * Math.cos(t), y2: cy + r * Math.sin(t),
-      stroke: big ? T.brass : T.line, strokeWidth: big ? 2.5 : 1.5, strokeLinecap: "round"
+      key: "t" + a, x1: i[0], y1: i[1], x2: o[0], y2: o[1],
+      stroke: big ? T.brass : T.line, strokeWidth: big ? 2 : 1, strokeLinecap: "round"
     }));
   }
-  return h("svg", { width: "100%", viewBox: "0 0 220 220", role: "img",
-    "aria-label": state === "none" ? "No edge today" : ("Model lean " + (state === "up" ? "up" : "down") + " at " + Math.round(p * 100) + " percent") },
-    h("path", { d: "M " + cx + " " + (cy - r) + " A " + r + " " + r + " 0 0 1 " + cx + " " + (cy + r),
-      fill: "none", stroke: T.line, strokeWidth: 3 }),
+
+  const inBand = p > STAND_DOWN[0] && p < STAND_DOWN[1];
+
+  return h("svg", { width: "100%", viewBox: "0 0 220 232", role: "img",
+    "aria-label": state === "none" ? "No edge today, inside the stand-down band"
+      : ("Model lean " + (state === "up" ? "up" : "down") + " at " + Math.round(p * 100) + " percent") },
+    // Track, then the stand-down band painted over it.
+    h("path", { d: arc(-90, 90, r), fill: "none", stroke: T.btn2, strokeWidth: 13, strokeLinecap: "round" }),
+    h("path", { d: arc(bandLow, bandHigh, r), fill: "none", stroke: T.neutralSoft, strokeWidth: 13 }),
+    h("path", { d: arc(bandLow, bandHigh, r), fill: "none", stroke: T.neutral, strokeWidth: 13, opacity: 0.18 }),
     ticks,
-    h("text", { x: cx + r + 2, y: cy - r + 6, fill: T.up, fontFamily: font.body, fontSize: 13, fontWeight: 800, textAnchor: "end" }, "UP"),
-    h("text", { x: cx + r + 2, y: cy + r - 1, fill: T.down, fontFamily: font.body, fontSize: 13, fontWeight: 800, textAnchor: "end" }, "DOWN"),
-    // Needle
-    h("line", { x1: cx - 14 * Math.cos(rad), y1: cy - 14 * Math.sin(rad), x2: nx, y2: ny,
-      stroke: color, strokeWidth: 5, strokeLinecap: "round" }),
-    h("circle", { cx: cx, cy: cy, r: 34, fill: T.card, stroke: T.line, strokeWidth: 1.5 }),
-    h("circle", { cx: cx, cy: cy, r: 4, fill: T.brass }),
-    h("text", { x: cx, y: cy - 6, fill: color, fontFamily: font.mono, fontSize: 26, fontWeight: 700, textAnchor: "middle" },
+    h("text", { x: cx, y: 14, fill: T.up, fontFamily: font.body, fontSize: 12.5, fontWeight: 800, textAnchor: "middle" }, "UP"),
+    h("text", { x: cx, y: 224, fill: T.down, fontFamily: font.body, fontSize: 12.5, fontWeight: 800, textAnchor: "middle" }, "DOWN"),
+    // Needle. A short counterweight behind the pivot so it reads as a
+    // balanced instrument rather than a pointer stuck on a dot.
+    h("line", {
+      x1: cx - 17 * Math.cos(rad), y1: cy - 17 * Math.sin(rad), x2: nx, y2: ny,
+      stroke: color, strokeWidth: 5, strokeLinecap: "round"
+    }),
+    h("circle", { cx: cx, cy: cy, r: 33, fill: T.card, stroke: T.line, strokeWidth: 1 }),
+    h("circle", { cx: cx, cy: cy, r: 3.5, fill: T.brass }),
+    h("text", { x: cx, y: cy - 5, fill: color, fontFamily: font.mono, fontSize: 25, fontWeight: 700, textAnchor: "middle" },
       state === "none" ? "\u2014" : Math.round(p * 100) + "%"),
-    h("text", { x: cx, y: cy + 14, fill: T.inkSoft, fontFamily: font.body, fontSize: 10.5, fontWeight: 700, letterSpacing: 1, textAnchor: "middle" },
-      state === "none" ? "NO EDGE" : (state === "up" ? "UP CLOSE" : "DOWN CLOSE"))
+    h("text", { x: cx, y: cy + 14, fill: T.inkSoft, fontFamily: font.body, fontSize: 10, fontWeight: 700, letterSpacing: 0.9, textAnchor: "middle" },
+      state === "none" ? "NO EDGE" : (state === "up" ? "UP CLOSE" : "DOWN CLOSE")),
+    inBand ? null : h("text", { x: cx, y: cy + 26, fill: T.inkSoft, fontFamily: font.body, fontSize: 9, textAnchor: "middle" }, "outside band")
   );
 }
 
@@ -423,6 +469,10 @@ function TodayScreen() {
       // Calibrated odds can land at even while the raw score still clears
       // the stand-down band. The call is legitimate - it fired on the
       // validated rule - but "50% DOWN" deserves a sentence.
+      h("div", { style: { fontFamily: font.body, fontSize: 11, color: T.inkSoft, marginTop: 8, lineHeight: 1.5 } },
+        "The shaded band on the dial is the stand-down zone, " +
+        Math.round(STAND_DOWN[0] * 100) + "\u2013" + Math.round(STAND_DOWN[1] * 100) +
+        "%. Inside it the model makes no call; just outside it is a thin one."),
       P.nearEven ? h("div", { style: { fontFamily: font.body, fontSize: 11.5, color: T.amber, marginTop: 8, lineHeight: 1.5, fontWeight: 700 } },
         "Calibrated odds are within a few points of even. The lean fired on the raw score" +
         (P.rawScore !== undefined ? " (" + Math.round(P.rawScore * 100) + "%)" : "") + "; size it like a coin flip, not a conviction.") : null
