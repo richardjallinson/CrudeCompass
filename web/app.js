@@ -707,6 +707,284 @@ function ScoreboardScreen() {
   );
 }
 
+
+// ---------------------------------------------------------------------------
+// Trades - a personal log of HOU/HOD trades, kept on this device.
+//
+// Stored in localStorage, not in data.json: the pipeline owns data.json and
+// rewrites it every morning, and a trade log is the one thing in this app
+// that belongs to the trader, not the model. The Backup card exists because
+// on-device storage is only as safe as the device; copy the backup text
+// somewhere else now and then.
+//
+// Each trade remembers what the model said the morning it was entered, so
+// the log can answer the question the Scoreboard cannot: not "was the
+// model right" but "did following it pay, after commissions."
+// ---------------------------------------------------------------------------
+
+const TRADES_KEY = "cc_trades_v1";
+const COMMISSION_KEY = "cc_commission_v1";
+const DEFAULT_COMMISSION = 9.99;
+
+function loadTrades() {
+  try {
+    const raw = localStorage.getItem(TRADES_KEY);
+    if (!raw) return [];
+    const obj = JSON.parse(raw);
+    return Array.isArray(obj.trades) ? obj.trades : [];
+  } catch (e) { return []; }
+}
+function saveTrades(list) {
+  try { localStorage.setItem(TRADES_KEY, JSON.stringify({ version: 1, trades: list })); } catch (e) {}
+}
+function loadCommission() {
+  try { const v = parseFloat(localStorage.getItem(COMMISSION_KEY)); return isNaN(v) ? DEFAULT_COMMISSION : v; } catch (e) { return DEFAULT_COMMISSION; }
+}
+function saveCommission(v) { try { localStorage.setItem(COMMISSION_KEY, String(v)); } catch (e) {} }
+
+function tradePnl(t) {
+  if (t.sell === null || t.sell === undefined) return null;
+  // Round to cents at the source so totals never carry float dust.
+  const cents = function (x) { return Math.round(x * 100) / 100; };
+  const gross = cents((t.sell - t.buy) * t.shares);
+  const fees = cents(2 * (t.commission || 0));
+  return { gross: gross, fees: fees, net: cents(gross - fees) };
+}
+function money(n, signed) {
+  const abs = Math.abs(n);
+  const s = abs.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (signed) return (n < 0 ? "\u2212$" : n > 0 ? "+$" : "$") + s;
+  return (n < 0 ? "\u2212$" : "$") + s;
+}
+function todayISO() {
+  const d = new Date();
+  const p = function (x) { return (x < 10 ? "0" : "") + x; };
+  return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate());
+}
+// Did this trade go with the model's call that morning, against it, or was
+// there no call to go with?
+function tradeVsModel(t) {
+  if (!t.model || t.model === "none") return "none";
+  const side = t.ticker.indexOf("HOU") === 0 ? "up" : "down";
+  return side === t.model ? "with" : "against";
+}
+
+function TradesScreen() {
+  const [trades, setTrades] = useState(loadTrades);
+  const [commission, setCommission] = useState(loadCommission);
+  const I = D.instruments || {};
+  const UP_T = (I.up && I.up.ticker) || "HOU.TO";
+  const DN_T = (I.down && I.down.ticker) || "HOD.TO";
+  const P = D.prediction || {};
+
+  // New-trade form. Ticker defaults to whichever side the model leans today.
+  const [date, setDate] = useState(todayISO());
+  const [ticker, setTicker] = useState(P.state === "down" ? DN_T : UP_T);
+  const [shares, setShares] = useState("");
+  const [buy, setBuy] = useState("");
+  const [sell, setSell] = useState("");
+  const [note, setNote] = useState("");
+  const [closing, setClosing] = useState({});      // id -> sell price text
+  const [confirmDel, setConfirmDel] = useState(null);
+  const [backupText, setBackupText] = useState("");
+  const [restoreText, setRestoreText] = useState("");
+  const [msg, setMsg] = useState("");
+
+  const persist = function (list) { setTrades(list); saveTrades(list); };
+  const flash = function (m) { setMsg(m); setTimeout(function () { setMsg(""); }, 2500); };
+
+  const addTrade = function () {
+    const sh = parseFloat(shares), b = parseFloat(buy), s = sell.trim() === "" ? null : parseFloat(sell);
+    if (!(sh > 0)) return flash("Shares must be a positive number.");
+    if (!(b > 0)) return flash("Buy price must be a positive number.");
+    if (s !== null && !(s > 0)) return flash("Sell price must be positive, or blank for an open trade.");
+    const t = {
+      id: Date.now() + "-" + Math.random().toString(36).slice(2, 7),
+      date: date || todayISO(), ticker: ticker, shares: sh, buy: b, sell: s,
+      commission: commission, note: note.trim(),
+      model: P.state || null, modelProb: (typeof P.probability === "number") ? P.probability : null
+    };
+    persist([t].concat(trades));
+    setShares(""); setBuy(""); setSell(""); setNote("");
+    flash(s === null ? "Open trade logged." : "Trade logged.");
+  };
+  const closeTrade = function (id) {
+    const s = parseFloat(closing[id]);
+    if (!(s > 0)) return flash("Enter the sell price first.");
+    persist(trades.map(function (t) { return t.id === id ? Object.assign({}, t, { sell: s }) : t; }));
+    const c = Object.assign({}, closing); delete c[id]; setClosing(c);
+    flash("Closed.");
+  };
+  const deleteTrade = function (id) {
+    if (confirmDel !== id) { setConfirmDel(id); setTimeout(function () { setConfirmDel(null); }, 3000); return; }
+    persist(trades.filter(function (t) { return t.id !== id; }));
+    setConfirmDel(null);
+  };
+  const updateCommission = function (v) {
+    const n = parseFloat(v);
+    if (!isNaN(n) && n >= 0) { setCommission(n); saveCommission(n); } else setCommission(v);
+  };
+
+  // Summary over closed trades.
+  const closed = trades.filter(function (t) { return tradePnl(t) !== null; });
+  const open = trades.length - closed.length;
+  let net = 0, gross = 0, fees = 0, wins = 0, best = null, worst = null;
+  let withCall = 0, withNet = 0, againstCall = 0, againstNet = 0;
+  closed.forEach(function (t) {
+    const p = tradePnl(t);
+    net += p.net; gross += p.gross; fees += p.fees;
+    if (p.net > 0) wins += 1;
+    if (best === null || p.net > best) best = p.net;
+    if (worst === null || p.net < worst) worst = p.net;
+    const v = tradeVsModel(t);
+    if (v === "with") { withCall += 1; withNet += p.net; }
+    if (v === "against") { againstCall += 1; againstNet += p.net; }
+  });
+  const netColor = net > 0 ? T.up : net < 0 ? T.down : T.heading;
+
+  const field = function (label, node) {
+    return h("label", { style: { display: "block", flex: "1 1 120px", minWidth: 0 } },
+      h("div", { style: { fontFamily: font.body, fontSize: 10.5, fontWeight: 800, letterSpacing: 0.8, color: T.inkSoft, textTransform: "uppercase", marginBottom: 4 } }, label),
+      node);
+  };
+  // 16px font on inputs stops iOS Safari zooming the page on focus.
+  const inputStyle = { width: "100%", boxSizing: "border-box", fontFamily: font.mono, fontSize: 16, padding: "9px 10px",
+    borderRadius: 9, border: "1px solid " + T.line, background: T.field, color: T.ink };
+  const input = function (props) {
+    return h("input", Object.assign({ style: inputStyle }, props));
+  };
+  const btn = function (label, onClick, primary, extra) {
+    return h("button", { onClick: onClick, style: Object.assign({
+      fontFamily: font.body, fontSize: 13.5, fontWeight: 800, padding: "10px 14px", borderRadius: 9, cursor: "pointer",
+      border: "1px solid " + (primary ? T.brass : T.line),
+      background: primary ? T.brass : T.btn2, color: primary ? T.onAccent : T.ink }, extra || {}) }, label);
+  };
+  const toggle = function (value, current, color, set) {
+    const on = current === value;
+    return h("button", { onClick: function () { set(value); }, style: {
+      flex: "1 1 0", fontFamily: font.mono, fontSize: 15, fontWeight: 800, padding: "9px 6px", borderRadius: 9, cursor: "pointer",
+      border: "1.5px solid " + (on ? color : T.line), background: on ? color : T.field, color: on ? "#FFFFFF" : T.inkSoft } }, value);
+  };
+
+  const stat = function (label, value, color) {
+    return h("div", { style: { flex: "1 1 0", textAlign: "center", padding: "4px 2px", minWidth: 0 } },
+      h("div", { style: { fontFamily: font.mono, fontSize: 19, fontWeight: 700, color: color || T.heading, whiteSpace: "nowrap" } }, value),
+      h("div", { style: { fontFamily: font.body, fontSize: 10.5, fontWeight: 700, color: T.inkSoft, marginTop: 2, lineHeight: 1.35 } }, label));
+  };
+
+  const exportCSV = function () {
+    const rows = [["date", "ticker", "shares", "buy", "sell", "commission_per_order", "gross", "fees", "net", "model_call", "model_prob", "note"]];
+    trades.slice().reverse().forEach(function (t) {
+      const p = tradePnl(t);
+      rows.push([t.date, t.ticker, t.shares, t.buy, t.sell === null ? "" : t.sell, t.commission,
+        p ? p.gross.toFixed(2) : "", p ? p.fees.toFixed(2) : "", p ? p.net.toFixed(2) : "",
+        t.model || "", t.modelProb === null || t.modelProb === undefined ? "" : t.modelProb, (t.note || "").replace(/"/g, "'")]);
+    });
+    setBackupText(rows.map(function (r) { return r.map(function (c) { return /[",\n]/.test(String(c)) ? '"' + c + '"' : c; }).join(","); }).join("\n"));
+  };
+  const exportJSON = function () { setBackupText(JSON.stringify({ version: 1, trades: trades }, null, 1)); };
+  const copyBackup = function () {
+    if (navigator.clipboard && backupText) navigator.clipboard.writeText(backupText).then(function () { flash("Copied."); }, function () { flash("Select the text and copy it by hand."); });
+  };
+  const restore = function () {
+    try {
+      const obj = JSON.parse(restoreText);
+      if (!obj || !Array.isArray(obj.trades)) throw new Error("no trades array");
+      persist(obj.trades); setRestoreText(""); flash("Restored " + obj.trades.length + " trade(s).");
+    } catch (e) { flash("That is not a Crude Compass backup."); }
+  };
+
+  return h("div", null,
+    h(Card, null,
+      SectionLabel("Net result, all closed trades"),
+      h("div", { style: { fontFamily: font.mono, fontSize: 34, fontWeight: 700, color: netColor, letterSpacing: -0.5 } }, money(net, true)),
+      h("div", { style: { fontFamily: font.body, fontSize: 12, color: T.inkSoft, marginTop: 2 } },
+        "after " + money(fees) + " in commissions on " + closed.length + " closed trade" + (closed.length === 1 ? "" : "s") +
+        (open ? " \u00b7 " + open + " open" : "")),
+      closed.length ? h("div", { style: { display: "flex", gap: 4, marginTop: 12, borderTop: "1px solid " + T.line, paddingTop: 10 } },
+        stat("win rate", Math.round(100 * wins / closed.length) + "%", wins / closed.length >= 0.5 ? T.up : T.down),
+        stat("avg / trade", money(net / closed.length, true), net >= 0 ? T.up : T.down),
+        stat("best", money(best, true), T.up),
+        stat("worst", money(worst, true), T.down)) : null,
+      (withCall + againstCall) ? h("div", { style: { fontFamily: font.body, fontSize: 12, color: T.inkSoft, lineHeight: 1.55, marginTop: 10, borderTop: "1px solid " + T.line, paddingTop: 10 } },
+        "Following the model's call: ", h("b", { style: { color: withNet >= 0 ? T.up : T.down } }, money(withNet, true)), " across " + withCall + ". ",
+        againstCall ? ["Going against it: ", h("b", { key: "a", style: { color: againstNet >= 0 ? T.up : T.down } }, money(againstNet, true)), " across " + againstCall + "."] : null) : null
+    ),
+
+    h(Card, null,
+      SectionLabel("Log a trade"),
+      h("div", { style: { display: "flex", gap: 8, marginBottom: 10 } },
+        toggle(UP_T, ticker, T.up, setTicker), toggle(DN_T, ticker, T.down, setTicker)),
+      P.state && P.state !== "none" ? h("div", { style: { fontFamily: font.body, fontSize: 11.5, color: T.inkSoft, marginBottom: 10 } },
+        "Model this morning: " + (P.state === "up" ? UP_T : DN_T) + " at " + Math.round((P.probability || 0.5) * 100) + "%.") :
+        h("div", { style: { fontFamily: font.body, fontSize: 11.5, color: T.inkSoft, marginBottom: 10 } }, "Model this morning: no call."),
+      h("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 } },
+        field("Date", input({ type: "date", value: date, onChange: function (e) { setDate(e.target.value); } })),
+        field("Shares", input({ type: "number", inputMode: "numeric", placeholder: "0", value: shares, onChange: function (e) { setShares(e.target.value); } }))),
+      h("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 } },
+        field("Buy price", input({ type: "number", inputMode: "decimal", step: "0.01", placeholder: "0.00", value: buy, onChange: function (e) { setBuy(e.target.value); } })),
+        field("Sell price (blank = still open)", input({ type: "number", inputMode: "decimal", step: "0.01", placeholder: "0.00", value: sell, onChange: function (e) { setSell(e.target.value); } }))),
+      h("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 } },
+        field("Commission per order", input({ type: "number", inputMode: "decimal", step: "0.01", value: commission, onChange: function (e) { updateCommission(e.target.value); } })),
+        field("Note", input({ type: "text", placeholder: "optional", value: note, onChange: function (e) { setNote(e.target.value); }, style: Object.assign({}, inputStyle, { fontFamily: font.body }) }))),
+      h("div", { style: { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" } },
+        btn("Add trade", addTrade, true),
+        h("span", { style: { fontFamily: font.body, fontSize: 12, color: T.inkSoft } },
+          "Round trip costs " + money(2 * (parseFloat(commission) || 0)) + " in commissions."),
+        msg ? h("span", { style: { fontFamily: font.body, fontSize: 12, fontWeight: 700, color: T.amber } }, msg) : null)
+    ),
+
+    h(Card, { style: { padding: "13px 16px" } },
+      SectionLabel("Trades"),
+      trades.length === 0 ? h("div", { style: { fontFamily: font.body, fontSize: 12.5, color: T.inkSoft } }, "Nothing logged yet.") :
+      trades.map(function (t, i) {
+        const p = tradePnl(t);
+        const side = t.ticker.indexOf("HOU") === 0 ? T.up : T.down;
+        const v = tradeVsModel(t);
+        return h("div", { key: t.id, style: { padding: "10px 0", borderTop: i ? "1px solid " + T.line : "none" } },
+          h("div", { style: { display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" } },
+            h("span", { style: { fontFamily: font.mono, fontSize: 12, color: T.inkSoft } }, t.date),
+            h("span", { style: { fontFamily: font.mono, fontSize: 14, fontWeight: 800, color: side } }, t.ticker),
+            h("span", { style: { fontFamily: font.mono, fontSize: 12.5, color: T.ink } },
+              t.shares + " @ " + fmt(t.buy) + (p ? " \u2192 " + fmt(t.sell) : "")),
+            h("span", { style: { marginLeft: "auto", fontFamily: font.mono, fontSize: 15, fontWeight: 800,
+              color: p ? (p.net > 0 ? T.up : p.net < 0 ? T.down : T.heading) : T.amber } },
+              p ? money(p.net, true) : "open")),
+          h("div", { style: { display: "flex", alignItems: "center", gap: 8, marginTop: 5, flexWrap: "wrap" } },
+            h("span", { style: { fontFamily: font.body, fontSize: 11, color: T.inkSoft } },
+              v === "with" ? "with the call" : v === "against" ? "against the call" : "no call that day",
+              p ? " \u00b7 gross " + money(p.gross, true) + ", fees " + money(p.fees) : "",
+              t.note ? " \u00b7 " + t.note : ""),
+            p ? null : h("div", { style: { display: "flex", gap: 6, alignItems: "center", marginLeft: "auto" } },
+              h("input", { type: "number", inputMode: "decimal", step: "0.01", placeholder: "sell price", value: closing[t.id] || "",
+                onChange: function (e) { const c = Object.assign({}, closing); c[t.id] = e.target.value; setClosing(c); },
+                style: Object.assign({}, inputStyle, { width: 110, padding: "6px 8px", fontSize: 16 }) }),
+              btn("Close", function () { closeTrade(t.id); }, true, { padding: "7px 10px", fontSize: 12.5 })),
+            btn(confirmDel === t.id ? "Sure?" : "\u2715", function () { deleteTrade(t.id); }, false,
+              { padding: "6px 9px", fontSize: 12, marginLeft: p ? "auto" : 0, color: confirmDel === t.id ? T.down : T.inkSoft }))
+        );
+      })
+    ),
+
+    h(Card, null,
+      SectionLabel("Backup"),
+      h("div", { style: { fontFamily: font.body, fontSize: 12, color: T.inkSoft, lineHeight: 1.55, marginBottom: 10 } },
+        "This log lives only on this phone. Copy a backup into Notes or an email now and then; clearing Safari data or losing the phone loses the log."),
+      h("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 } },
+        btn("Show CSV", exportCSV), btn("Show backup", exportJSON),
+        backupText ? btn("Copy", copyBackup, true) : null),
+      backupText ? h("textarea", { readOnly: true, value: backupText, rows: 6,
+        style: Object.assign({}, inputStyle, { fontSize: 12, fontFamily: font.mono, marginBottom: 12 }) }) : null,
+      h("div", { style: { fontFamily: font.body, fontSize: 11, fontWeight: 800, letterSpacing: 0.8, color: T.inkSoft, textTransform: "uppercase", marginBottom: 4 } }, "Restore from backup"),
+      h("textarea", { value: restoreText, rows: 3, placeholder: "paste a backup here",
+        onChange: function (e) { setRestoreText(e.target.value); },
+        style: Object.assign({}, inputStyle, { fontSize: 12, fontFamily: font.mono, marginBottom: 8 }) }),
+      restoreText.trim() ? btn("Restore (replaces the current log)", restore) : null
+    ),
+    h(Disclaimer)
+  );
+}
+
 function SettingsScreen(props) {
   const themeId = props.themeId, chooseTheme = props.chooseTheme;
   return h("div", null,
@@ -803,7 +1081,8 @@ function App() {
     { id: "briefing", label: "Briefing" },
     { id: "calendar", label: "Calendar" },
     { id: "charts", label: "Charts" },
-    { id: "scoreboard", label: "Scoreboard" }
+    { id: "scoreboard", label: "Scoreboard" },
+    { id: "trades", label: "Trades" }
   ];
 
   return h("div", { style: { fontFamily: font.body, color: T.ink, background: T.bg, minHeight: "100vh" } },
@@ -874,6 +1153,7 @@ function App() {
       tab === "calendar" ? h(CalendarScreen) : null,
       tab === "charts" ? h(ChartsScreen, { range: chartRange, setRange: setChartRange }) : null,
       tab === "scoreboard" ? h(ScoreboardScreen) : null,
+      tab === "trades" ? h(TradesScreen) : null,
       tab === "settings" ? h(SettingsScreen, { themeId: themeId, chooseTheme: chooseTheme }) : null)
   );
 }
