@@ -1,7 +1,61 @@
 name: Daily Crude Compass update
 
-on: {schedule: [{cron: '0 12 * * 1-5'}], workflow_dispatch: {}}
+# Runs the pipeline on GitHub's own machine every weekday morning, so the
+# app updates whether or not your Mac is on. Nothing here ever prints an
+# API key: they're read from GitHub's encrypted Secrets, set once in the
+# repo's Settings > Secrets and variables > Actions, never committed as text.
 
-permissions: {contents: write}
+on:
+  schedule:
+    # 12:00 UTC = 8:00 AM ET during Eastern Daylight Time (roughly Mar-Nov).
+    # During Eastern Standard Time (winter) this lands at 7:00 AM ET instead -
+    # an hour early is harmless for a morning briefing. GitHub also runs
+    # scheduled jobs on a best-effort basis and can be a few minutes to an
+    # hour late when its shared runners are busy, so treat this as
+    # approximate rather than guaranteed to the minute.
+    - cron: '0 12 * * 1-5'
+  workflow_dispatch: {}
+  # ^ adds a "Run workflow" button on the Actions tab, so you can trigger
+  #   this by hand to test it rather than waiting for tomorrow morning.
 
-jobs: {update: {runs-on: ubuntu-latest, steps: [{name: 'Check out repo', uses: 'actions/checkout@v4'}, {name: 'Set up Python', uses: 'actions/setup-python@v5', with: {python-version: '3.11'}}, {name: 'Install dependencies', working-directory: 'pipeline', run: 'pip install -r requirements.txt'}, {name: 'Refresh history', working-directory: 'pipeline', run: 'python run.py --backfill', env: {EIA_API_KEY: '${{ secrets.EIA_API_KEY }}', FRED_API_KEY: '${{ secrets.FRED_API_KEY }}'}}, {name: 'Produce daily call', working-directory: 'pipeline', run: 'python run.py --daily', env: {EIA_API_KEY: '${{ secrets.EIA_API_KEY }}', FRED_API_KEY: '${{ secrets.FRED_API_KEY }}'}}, {name: 'Commit updated data', run: 'git config user.name "Crude Compass bot" && git config user.email "actions@users.noreply.github.com" && git add web/data.json pipeline/crude_compass.db && (git diff --cached --quiet || git commit -m "Daily update: $(date -u +%Y-%m-%d)") && git push'}]}}
+permissions:
+  contents: write
+  # ^ required so the job can commit the new data.json and database back
+  #   to the repo. Without this the job can read the repo but not write to it.
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        working-directory: pipeline
+        run: pip install -r requirements.txt
+
+      # v1C: --daily refreshes the trailing window itself, so the full
+      # --backfill is no longer run every morning. That makes the run
+      # faster, lighter on the free APIs, and means a flaky backfill can
+      # never wipe a good database. --backfill is still there for repair:
+      # run it by hand (locally or via "Run workflow") if a series looks
+      # wrong. FRED_API_KEY is no longer used; leaving the secret in place
+      # is harmless.
+      - name: Refresh data and produce today's call
+        working-directory: pipeline
+        env:
+          EIA_API_KEY: ${{ secrets.EIA_API_KEY }}
+        run: python run.py --daily
+
+      - name: Commit updated data
+        run: |
+          git config user.name "Crude Compass bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add web/data.json pipeline/crude_compass.db
+          git diff --cached --quiet || git commit -m "Daily update: $(date -u +%Y-%m-%d)"
+          git push
