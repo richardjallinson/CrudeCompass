@@ -1,25 +1,46 @@
 {
-  "generatedAt": "2026-09-01T15:38:42+00:00",
-  "dataThrough": "2026-09-01",
+  "generatedAt": "2026-09-02T10:57:22+00:00",
+  "dataThrough": "2026-09-02",
   "isLive": true,
-  "version": "v1B",
-  "limitation": "Free EIA and FRED data publishes end-of-day with a lag, so in this local-script version a call is resolved the NEXT morning rather than live at the 2:30 PM ET settlement. The intraday tracking strip stays empty until a live price feed arrives in v1C.",
-  "asOf": "Data through Tue Sep 01 \u00b7 locked 8:00 AM ET",
+  "version": "v1C",
+  "limitation": "The pipeline runs once, before the open, so a call is resolved the NEXT morning against the prior settlement rather than live at the 2:30 PM ET close. Prices are same-day closes from Yahoo Finance; the weekly EIA and CFTC series still publish with their normal lags.",
+  "instruments": {
+    "up": {
+      "ticker": "HOU.TO",
+      "name": "BetaPro Crude Oil Leveraged Daily Bull"
+    },
+    "down": {
+      "ticker": "HOD.TO",
+      "name": "BetaPro Crude Oil Inverse Leveraged Daily Bear"
+    },
+    "leverage": 2.0
+  },
+  "asOf": "Data through Wed Sep 02 \u00b7 locked 8:00 AM ET",
   "spot": {
-    "last": 88.16,
-    "chg": 2.4,
-    "chgPct": 2.8
+    "last": 90.48,
+    "chg": 4.72,
+    "chgPct": 5.5
   },
   "prediction": {
     "state": "none",
-    "probability": 0.5086,
-    "rangeLow": 86.0,
-    "rangeHigh": 90.32,
+    "probability": 0.5299,
+    "rawScore": 0.5011,
+    "nearEven": false,
+    "rangeLow": 88.67,
+    "rangeHigh": 92.29,
+    "rangePct": 2.0,
+    "etfRangePct": 4.01,
+    "instrument": null,
     "drivers": [
       {
-        "label": "Brent-WTI spread change",
+        "label": "Distance from 20-day mean",
         "dir": "down",
-        "note": "$-2.36. Pushing the lean down."
+        "note": "+0.84 sigma from the 20-day mean. Pushing the lean down."
+      },
+      {
+        "label": "Twenty-day trend",
+        "dir": "up",
+        "note": "+13.18% over the window. Pushing the lean up."
       },
       {
         "label": "Seasonality",
@@ -27,24 +48,19 @@
         "note": "-0.8660. Pushing the lean down."
       },
       {
-        "label": "Brent-WTI spread",
-        "dir": "down",
-        "note": "$+2.48. Pushing the lean down."
-      },
-      {
         "label": "Managed-money crowding",
         "dir": "up",
         "note": "Managed-money net length sits at the 0th percentile of the last three years. Pushing the lean up."
       }
     ],
-    "caution": "Resolution happens the next morning in this version, not live at the 2:30 PM ET settlement \u2014 free data publishes end of day. Around scheduled releases the model's read applies to the session as a whole, not to the minutes after the print."
+    "caution": "Resolution happens the next morning, not live at the 2:30 PM ET settlement: the pipeline runs once, before the open. Around scheduled releases the model's read applies to the session as a whole, not to the minutes after the print."
   },
   "briefing": {
     "headline": "No edge today",
     "paragraphs": [
-      "WTI is firmer over the past week, +7.0% across five sessions, with realized volatility elevated at 2.5% daily. The model is standing down today: the signals sit too close to even to be worth a call.",
-      "Brent trades $+2.48 against WTI. Managed-money positioning is middling, neither crowded nor cleared out (the 50th percentile of the last three years).",
-      "This briefing is assembled directly from the day's feature values \u2014 it says what the inputs say and nothing more. Narrative summaries of news arrive in v1C."
+      "WTI is firmer over the past week, +10.0% across five sessions, with realized volatility ordinary at 2.0% daily. The model is standing down today: the signals sit too close to even to be worth a call.",
+      "Brent trades $+4.73 against WTI. Managed-money positioning is middling, neither crowded nor cleared out (the 50th percentile of the last three years).",
+      "This briefing is assembled directly from the day's feature values \u2014 it says what the inputs say and nothing more. Narrative summaries of news arrive in v1D."
     ],
     "watching": [
       "EIA Weekly Petroleum Status, Wednesdays 10:30 AM ET",
@@ -53,14 +69,6 @@
     ]
   },
   "events": [
-    {
-      "day": "Wed",
-      "date": "Sep 02",
-      "time": "10:30 AM ET",
-      "name": "EIA Weekly Petroleum Status",
-      "impact": "high",
-      "note": "The week's main event. The surprise against consensus moves price, not the level."
-    },
     {
       "day": "Fri",
       "date": "Sep 04",
@@ -116,17 +124,24 @@
       "name": "API weekly inventories",
       "impact": "medium",
       "note": "Industry preview of Wednesday's EIA report. After-hours mover."
+    },
+    {
+      "day": "Wed",
+      "date": "Sep 16",
+      "time": "10:30 AM ET",
+      "name": "EIA Weekly Petroleum Status",
+      "impact": "high",
+      "note": "The week's main event. The surprise against consensus moves price, not the level."
     }
   ],
   "chart1D": [
-    86.83,
-    92.19,
     89.31,
     82.61,
     79.26,
     84.46,
     83.59,
     84.67,
+    85.76,
     80.34,
     75.77,
     75.22,
@@ -148,12 +163,11 @@
     83.53,
     83.4,
     85.76,
-    88.16
+    85.76,
+    90.48
   ],
   "chart5D": [
-    106.88,
-    105.07,
-    101.94,
+    87.36,
     106.42,
     102.27,
     95.08,
@@ -174,7 +188,7 @@
     88.68,
     88.9,
     87.36,
-    92.16,
+    69.5,
     93.76,
     96.02,
     93.04,
@@ -196,7 +210,7 @@
     69.23,
     70.75,
     69.5,
-    68.58,
+    84.67,
     68.69,
     68.69,
     68.55,
@@ -219,6 +233,7 @@
     84.46,
     83.59,
     84.67,
+    85.76,
     80.34,
     75.77,
     75.22,
@@ -240,69 +255,77 @@
     83.53,
     83.4,
     85.76,
-    88.16
+    85.76,
+    90.48
   ],
   "scoreboard": {
     "windowLabel": "Walk-forward validation (out of sample)",
-    "fired": 1467,
-    "standDowns": 2067,
+    "fired": 2017,
+    "standDowns": 1546,
     "hits": 0,
-    "accuracy": 0.5317,
-    "baseline": 0.5034,
+    "accuracy": 0.5964,
+    "baseline": 0.506,
     "baselineLabel": "always guess up",
     "liveAccuracy": 0.0,
     "liveResolved": 1,
-    "liveStands": 1,
-    "brier": 0.2518,
+    "liveStands": 2,
+    "brier": 0.2458,
     "brierBaseline": 0.25,
-    "scoredDays": 3334,
-    "scoredCalibrated": true,
     "beatsBaseline": true,
     "calibration": [
       {
         "band": "0-40%",
-        "n": 42,
-        "predicted": 0.3829701196011356,
-        "actual": 0.5714285714285714
+        "n": 459,
+        "predicted": 0.3385556964374471,
+        "actual": 0.4008714596949891
       },
       {
         "band": "40-45%",
-        "n": 380,
-        "predicted": 0.4248355814746889,
-        "actual": 0.46842105263157896
+        "n": 246,
+        "predicted": 0.4261889659481754,
+        "actual": 0.4105691056910569
       },
       {
         "band": "45-50%",
-        "n": 799,
-        "predicted": 0.4818482029067634,
-        "actual": 0.48936170212765956
+        "n": 778,
+        "predicted": 0.47175769889445873,
+        "actual": 0.45629820051413883
       },
       {
         "band": "50-55%",
-        "n": 1968,
-        "predicted": 0.515746775580975,
-        "actual": 0.5142276422764228
+        "n": 672,
+        "predicted": 0.5399955435271632,
+        "actual": 0.5386904761904762
       },
       {
         "band": "55-60%",
-        "n": 76,
-        "predicted": 0.5638625292774377,
-        "actual": 0.47368421052631576
+        "n": 832,
+        "predicted": 0.5664804230379621,
+        "actual": 0.5432692307692307
       },
       {
         "band": "60-101%",
-        "n": 69,
-        "predicted": 0.7501580013882427,
-        "actual": 0.5362318840579711
+        "n": 366,
+        "predicted": 0.6824638449571231,
+        "actual": 0.6693989071038251
       }
     ],
-    "calibrationNote": "Of days the model put 60-101% on a direction, 54% resolved that way against 75% predicted (69 days). Closer together is better.",
+    "calibrationNote": "Of days the model put 0-40% on a direction, 40% resolved that way against 34% predicted (459 days). Closer together is better.",
+    "scoredCalibrated": true,
+    "scoredDays": 3353,
+    "outOfSampleDays": 3563,
     "log": [
+      {
+        "date": "2026-09-03",
+        "call": "none",
+        "prob": 0.53,
+        "outcome": "open"
+      },
       {
         "date": "2026-09-02",
         "call": "none",
         "prob": 0.509,
-        "outcome": "open"
+        "outcome": "stand"
       },
       {
         "date": "2026-09-01",
@@ -320,8 +343,8 @@
   },
   "sources": [
     {
-      "name": "FRED \u2014 WTI, Brent, dollar, natural gas",
-      "status": "Live \u00b7 through 2026-09-01"
+      "name": "Yahoo Finance \u2014 WTI (CL=F), Brent, dollar index, natural gas",
+      "status": "Live \u00b7 through 2026-09-02"
     },
     {
       "name": "EIA \u2014 crude and Cushing stocks",
@@ -333,21 +356,21 @@
     },
     {
       "name": "Futures curve (term structure)",
-      "status": "Not connected \u00b7 planned v1C"
+      "status": "Not connected \u00b7 planned v1D"
     },
     {
       "name": "Intraday price feed",
-      "status": "Not connected \u00b7 planned v1C"
+      "status": "Not connected \u00b7 planned v1D"
     },
     {
       "name": "News scoring",
-      "status": "Not connected \u00b7 planned v1C"
+      "status": "Not connected \u00b7 planned v1D"
     }
   ],
   "model": {
     "kind": "logistic regression (L2, standardized)",
     "features": 24,
-    "trainedThrough": "2026-09-01",
+    "trainedThrough": "2026-09-02",
     "standDownBand": [
       0.45,
       0.55
