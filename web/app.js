@@ -606,6 +606,55 @@ function priceChart(series) {
   );
 }
 
+// Live chart. The one place the app loads something from outside: a
+// TradingView widget, which is built to be embedded and works in a
+// standalone PWA on iOS. The Trading Economics page the trader already
+// uses does not allow embedding (most finance sites send frame-blocking
+// headers), so it gets a one-tap button that opens it in the browser.
+const TE_URL = "https://tradingeconomics.com/commodity/crude-oil";
+const TV_SYMBOLS = [
+  { id: "TVC:USOIL", label: "WTI spot", note: "continuous, near real-time" },
+  { id: "NYMEX:CL1!", label: "CL front month", note: "what HOU/HOD track; may be delayed" },
+  { id: "TSX:HOU", label: "HOU.TO", note: "the bull ETF itself" },
+  { id: "TSX:HOD", label: "HOD.TO", note: "the bear ETF itself" }
+];
+const TV_INTERVALS = [["1", "1m"], ["5", "5m"], ["15", "15m"], ["60", "1h"], ["D", "1D"]];
+function LiveChartScreen() {
+  const [sym, setSym] = useState(TV_SYMBOLS[0].id);
+  const [ivl, setIvl] = useState("5");
+  const dark = T === PALETTES.dark;
+  const url = "https://s.tradingview.com/widgetembed/?symbol=" + encodeURIComponent(sym) +
+    "&interval=" + ivl + "&hidesidetoolbar=1&hidetoptoolbar=0&symboledit=0&saveimage=0&toolbarbg=" +
+    (dark ? "0B1224" : "F5F6FA") + "&theme=" + (dark ? "dark" : "light") + "&style=1&timezone=America%2FNew_York&withdateranges=1&locale=en";
+  const pill = function (on, label, onClick) {
+    return h("button", { key: label, onClick: onClick, style: {
+      fontFamily: font.body, fontSize: 11, fontWeight: 800, padding: "6px 10px", borderRadius: 999, cursor: "pointer", whiteSpace: "nowrap",
+      border: "1px solid " + (on ? T.brass : T.line), background: on ? T.brassSoft : "transparent", color: on ? T.heading : T.inkSoft } }, label);
+  };
+  const current = TV_SYMBOLS.filter(function (s) { return s.id === sym; })[0];
+  return h("div", null,
+    h(Card, { style: { padding: "12px 12px 10px" } },
+      h("div", { className: "hscroll", style: { display: "flex", gap: 6, marginBottom: 8 } },
+        TV_SYMBOLS.map(function (s) { return pill(sym === s.id, s.label, function () { setSym(s.id); }); })),
+      h("div", { style: { display: "flex", gap: 6, marginBottom: 10 } },
+        TV_INTERVALS.map(function (i) { return pill(ivl === i[0], i[1], function () { setIvl(i[0]); }); })),
+      h("div", { style: { position: "relative", borderRadius: 10, overflow: "hidden", border: "1px solid " + T.line, background: T.field } },
+        h("iframe", { key: url, src: url, title: "Live chart", style: { display: "block", width: "100%", height: 420, border: "none" },
+          allow: "fullscreen", loading: "eager" })),
+      h("div", { style: { fontFamily: font.body, fontSize: 11, color: T.inkSoft, marginTop: 8, lineHeight: 1.5 } },
+        current.label + " \u2014 " + current.note + ". Chart by TradingView; prices here are informational and can lag the exchange.")),
+    h(Card, null,
+      SectionLabel("Your usual page"),
+      h("a", { href: TE_URL, target: "_blank", rel: "noopener", style: {
+        display: "block", textAlign: "center", textDecoration: "none", fontFamily: font.body, fontSize: 14.5, fontWeight: 800,
+        padding: "13px 14px", borderRadius: 10, background: T.brass, color: T.onAccent, marginBottom: 8 } },
+        "Open Trading Economics \u2192 Crude Oil"),
+      h("div", { style: { fontFamily: font.body, fontSize: 11.5, color: T.inkSoft, lineHeight: 1.5 } },
+        "Opens in the browser. Trading Economics does not allow its pages inside other apps, so it cannot be shown here directly.")),
+    h(Card, { style: { border: "none", background: "transparent", padding: "0 4px" } }, h(Disclaimer))
+  );
+}
+
 function ChartsScreen(props) {
   const range = props.range, setRange = props.setRange;
   const series = range === "1D" ? D.chart1D : D.chart5D;
@@ -745,6 +794,10 @@ function movementAmount(m) {
 }
 const COMMISSION_KEY = "cc_commission_v1";
 const DEFAULT_COMMISSION = 9.99;
+const BACKUP_KEY = "cc_last_backup_v1";
+const BACKUP_NUDGE_DAYS = 7;
+function loadLastBackup() { try { return localStorage.getItem(BACKUP_KEY) || null; } catch (e) { return null; } }
+function markBackup() { try { localStorage.setItem(BACKUP_KEY, todayISO()); } catch (e) {} }
 
 function loadTrades() {
   try {
@@ -853,6 +906,8 @@ function TradesScreen() {
   const [ledgerRange, setLedgerRange] = useState("month");
   const [perfRange, setPerfRange] = useState("day");
   const [confirmClose, setConfirmClose] = useState(null);
+  const [lastBackup, setLastBackup] = useState(loadLastBackup);
+  const [riskPct, setRiskPct] = useState(function () { try { return localStorage.getItem("cc_risk_pct_v1") || "1"; } catch (e) { return "1"; } });
   const I = D.instruments || {};
   const UP_T = (I.up && I.up.ticker) || "HOU.TO";
   const DN_T = (I.down && I.down.ticker) || "HOD.TO";
@@ -1088,6 +1143,36 @@ function TradesScreen() {
     return acc;
   })();
 
+  // Backup nudge: days since the backup text was last shown. Only nags
+  // once there is something worth losing.
+  const backupAge = (function () {
+    if (!trades.length && !movements.length) return null;
+    if (!lastBackup) return Infinity;
+    const a = new Date(lastBackup + "T12:00:00"), b = new Date(todayISO() + "T12:00:00");
+    return Math.round((b - a) / 86400000);
+  })();
+  const needsBackup = backupAge !== null && backupAge >= BACKUP_NUDGE_DAYS;
+
+  // Position sizing. Risk a fixed slice of the account against the
+  // day's expected move at 2x. Money at risk = balance * risk%. The move
+  // the range implies = etfRangePct of the position. So the position that
+  // risks exactly that money = risk money / (etfRangePct / 100). Shares
+  // follow once a buy price is typed. This is arithmetic, not advice: it
+  // sizes to the model's range, and the range is a one-sigma estimate.
+  const sizing = (function () {
+    const lev = (D.instruments && D.instruments.leverage) || 2;
+    const etfPct = P.etfRangePct !== undefined ? P.etfRangePct : (P.rangePct !== undefined ? P.rangePct * lev : null);
+    const r = parseFloat(riskPct);
+    if (!hasOpening || !(balance > 0) || !(etfPct > 0) || !(r > 0)) return null;
+    const riskMoney = cents(balance * r / 100);
+    const position = cents(riskMoney / (etfPct / 100));
+    const capped = Math.min(position, cashAvail);
+    const px = parseFloat(buy);
+    const sh = px > 0 ? Math.floor(capped / px) : null;
+    return { riskMoney: riskMoney, position: position, capped: capped, shares: sh, etfPct: etfPct, cashLimited: position > cashAvail };
+  })();
+  const saveRisk = function (v) { setRiskPct(v); try { localStorage.setItem("cc_risk_pct_v1", v); } catch (e) {} };
+
   // Performance buckets: net P/L per day / week / month over closed trades.
   const perfBars = (function () {
     const buckets = {};
@@ -1165,7 +1250,7 @@ function TradesScreen() {
     const all = rows.concat(cash);
     setBackupText(all.map(function (r) { return r.map(function (c) { return /[",\n]/.test(String(c)) ? '"' + c + '"' : c; }).join(","); }).join("\n"));
   };
-  const exportJSON = function () { setBackupText(JSON.stringify({ version: 2, trades: trades, account: account }, null, 1)); };
+  const exportJSON = function () { setBackupText(JSON.stringify({ version: 2, trades: trades, account: account }, null, 1)); markBackup(); setLastBackup(todayISO()); };
   const copyBackup = function () {
     if (navigator.clipboard && backupText) navigator.clipboard.writeText(backupText).then(function () { flash("Copied."); }, function () { flash("Select the text and copy it by hand."); });
   };
@@ -1180,6 +1265,12 @@ function TradesScreen() {
   };
 
   return h("div", null,
+    needsBackup ? h("button", { onClick: function () { setSeg("account"); }, style: {
+      display: "block", width: "100%", textAlign: "left", cursor: "pointer", marginBottom: 10, padding: "9px 12px", borderRadius: 10,
+      border: "1px solid " + T.amber, background: T.amberSoft, color: T.amber, fontFamily: font.body, fontSize: 12, fontWeight: 700, lineHeight: 1.45 } },
+      (backupAge === Infinity ? "No backup yet." : "Last backup " + backupAge + " days ago.") +
+      " This ledger lives only on this phone. Tap to open Account \u2192 Backup and copy one into Notes.") : null,
+
     // Segmented control. Log is the default: it is the screen that has to be
     // fast. Everything else is a tap away and out of the way.
     h("div", { style: { display: "flex", gap: 4, background: T.btn2, borderRadius: 12, padding: 4, marginBottom: 12 } },
@@ -1201,6 +1292,22 @@ function TradesScreen() {
           ? "Model this morning: " + (P.state === "up" ? UP_T : DN_T) + " at " + Math.round((P.probability || 0.5) * 100) + "%."
           : "Model this morning: no call.") +
         (hasOpening ? " Cash available " + money(cashAvail) + "." : "")),
+      sizing ? h("div", { style: { background: T.neutralSoft, border: "1px solid " + T.line, borderRadius: 10, padding: "10px 12px", marginBottom: 12 } },
+        h("div", { style: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" } },
+          h("div", { style: { fontFamily: font.body, fontSize: 10.5, fontWeight: 800, letterSpacing: 0.8, color: T.inkSoft, textTransform: "uppercase" } }, "Size for"),
+          h("input", { type: "number", inputMode: "decimal", step: "0.25", min: "0.1", max: "10", value: riskPct,
+            onChange: function (e) { saveRisk(e.target.value); },
+            style: Object.assign({}, inputStyle, { width: 64, padding: "5px 8px", fontSize: 16, textAlign: "right" }) }),
+          h("div", { style: { fontFamily: font.body, fontSize: 12, color: T.inkSoft } }, "% of account at risk on today's range")),
+        h("div", { style: { fontFamily: font.body, fontSize: 13, color: T.ink, marginTop: 8, lineHeight: 1.55 } },
+          money(sizing.riskMoney), " at risk against a \u00b1", fmt(sizing.etfPct, 1), "% expected move means up to ",
+          h("b", { style: { fontFamily: font.mono } }, money(sizing.capped)), " in ", ticker.replace(".TO", ""),
+          sizing.shares !== null ? [" \u2014 about ", h("b", { key: "s", style: { fontFamily: font.mono } }, sizing.shares + " shares"), " at " + fmt(parseFloat(buy)) + "."] : ". Type a buy price to get shares.",
+          sizing.cashLimited ? h("span", { style: { color: T.amber, fontWeight: 700 } }, " Capped at cash available.") : null),
+        sizing.shares !== null && sizing.shares > 0 ? h("div", { style: { marginTop: 8 } },
+          btn("Use " + sizing.shares + " shares", function () { setShares(String(sizing.shares)); }, false, { padding: "7px 10px", fontSize: 12.5 })) : null,
+        h("div", { style: { fontFamily: font.body, fontSize: 10.5, color: T.inkSoft, marginTop: 6, lineHeight: 1.5 } },
+          "The range is a one-sigma estimate: about one day in three moves further than this. Arithmetic, not advice.")) : null,
       h("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 } },
         field("Date", input({ type: "date", value: date, onChange: function (e) { setDate(e.target.value); } })),
         field("Shares", input({ type: "number", inputMode: "numeric", placeholder: "0", value: shares, onChange: function (e) { setShares(e.target.value); } }))),
@@ -1503,6 +1610,7 @@ function App() {
   const TABS = [
     { id: "today", label: "Today" },
     { id: "trades", label: "Trades" },
+    { id: "chart", label: "Chart" },
     { id: "briefing", label: "Briefing" },
     { id: "calendar", label: "Calendar" },
     { id: "scoreboard", label: "Scoreboard" }
@@ -1576,6 +1684,7 @@ function App() {
       tab === "calendar" ? h(CalendarScreen) : null,
       tab === "scoreboard" ? h(ScoreboardScreen) : null,
       tab === "trades" ? h(TradesScreen) : null,
+      tab === "chart" ? h(LiveChartScreen) : null,
       tab === "settings" ? h(SettingsScreen, { themeId: themeId, chooseTheme: chooseTheme }) : null)
   );
 }
