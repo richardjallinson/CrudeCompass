@@ -822,7 +822,6 @@ function TradesScreen() {
   const [mvAmount, setMvAmount] = useState("");
   const [mvDate, setMvDate] = useState(todayISO());
   const [mvNote, setMvNote] = useState("");
-  const [roomText, setRoomText] = useState(account.room === null ? "" : String(account.room));
   const [showMovements, setShowMovements] = useState(false);
   const I = D.instruments || {};
   const UP_T = (I.up && I.up.ticker) || "HOU.TO";
@@ -955,16 +954,6 @@ function TradesScreen() {
     return { kind: first, n: n };
   })();
 
-  // TFSA room. The user enters the room CRA shows for this year; the app
-  // subtracts deposits made this year. Withdrawals do NOT come back until
-  // January 1, so they are deliberately not added.
-  const thisYear = todayISO().slice(0, 4);
-  const depositsThisYear = cents(movements.filter(function (m) { return m.type === "deposit" && m.date.slice(0, 4) === thisYear; })
-    .reduce(function (s, m) { return s + Math.abs(m.amount); }, 0));
-  const withdrawnThisYear = cents(movements.filter(function (m) { return m.type === "withdrawal" && m.date.slice(0, 4) === thisYear; })
-    .reduce(function (s, m) { return s + Math.abs(m.amount); }, 0));
-  const roomIsCurrent = account.room !== null && account.roomYear === thisYear;
-  const roomLeft = roomIsCurrent ? cents(account.room - depositsThisYear) : null;
 
   const addMovement = function () {
     const a = parseFloat(mvAmount);
@@ -979,12 +968,6 @@ function TradesScreen() {
     if (confirmDel !== id) { setConfirmDel(id); setTimeout(function () { setConfirmDel(null); }, 3000); return; }
     persistAccount(Object.assign({}, account, { movements: movements.filter(function (m) { return m.id !== id; }) }));
     setConfirmDel(null);
-  };
-  const saveRoom = function () {
-    const r = parseFloat(roomText);
-    if (isNaN(r) || r < 0) return flash("Enter the room CRA shows for " + thisYear + ".");
-    persistAccount(Object.assign({}, account, { room: cents(r), roomYear: thisYear }));
-    flash("Room saved for " + thisYear + ".");
   };
   const mvLabel = { opening: "Opening balance", deposit: "Deposit", withdrawal: "Withdrawal", adjustment: "Adjustment" };
   const [expanded, setExpanded] = useState(null);
@@ -1066,9 +1049,13 @@ function TradesScreen() {
   };
   // 16px font on inputs stops iOS Safari zooming the page on focus.
   const inputStyle = { width: "100%", boxSizing: "border-box", fontFamily: font.mono, fontSize: 16, padding: "9px 10px",
-    borderRadius: 9, border: "1px solid " + T.line, background: T.field, color: T.ink };
+    borderRadius: 9, border: "1px solid " + T.line, background: T.field, color: T.ink,
+    // iOS gives date inputs an intrinsic width and ignores width:100%
+    // unless appearance is reset and min-width is released.
+    WebkitAppearance: "none", appearance: "none", minWidth: 0, display: "block", maxWidth: "100%" };
   const input = function (props) {
-    return h("input", Object.assign({ style: inputStyle }, props));
+    const style = props.type === "date" ? Object.assign({}, inputStyle, { minHeight: 44 }) : inputStyle;
+    return h("input", Object.assign({ style: style }, props));
   };
   const btn = function (label, onClick, primary, extra) {
     return h("button", { onClick: onClick, style: Object.assign({
@@ -1118,6 +1105,31 @@ function TradesScreen() {
 
   return h("div", null,
     h(Card, null,
+      SectionLabel("Log a trade"),
+      h("div", { style: { display: "flex", gap: 8, marginBottom: 10 } },
+        toggle(UP_T, ticker, T.up, setTicker), toggle(DN_T, ticker, T.down, setTicker)),
+      h("div", { style: { fontFamily: font.body, fontSize: 11.5, color: T.inkSoft, marginBottom: 10 } },
+        (P.state && P.state !== "none"
+          ? "Model this morning: " + (P.state === "up" ? UP_T : DN_T) + " at " + Math.round((P.probability || 0.5) * 100) + "%."
+          : "Model this morning: no call.") +
+        (hasOpening ? " Cash available " + money(cashAvail) + "." : "")),
+      h("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 } },
+        field("Date", input({ type: "date", value: date, onChange: function (e) { setDate(e.target.value); } })),
+        field("Shares", input({ type: "number", inputMode: "numeric", placeholder: "0", value: shares, onChange: function (e) { setShares(e.target.value); } }))),
+      h("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 } },
+        field("Buy price", input({ type: "number", inputMode: "decimal", step: "0.01", placeholder: "0.00", value: buy, onChange: function (e) { setBuy(e.target.value); } })),
+        field("Sell price (blank = still open)", input({ type: "number", inputMode: "decimal", step: "0.01", placeholder: "0.00", value: sell, onChange: function (e) { setSell(e.target.value); } }))),
+      h("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 } },
+        field("Commission per order", input({ type: "number", inputMode: "decimal", step: "0.01", value: commission, onChange: function (e) { updateCommission(e.target.value); } })),
+        field("Note", input({ type: "text", placeholder: "optional", value: note, onChange: function (e) { setNote(e.target.value); }, style: Object.assign({}, inputStyle, { fontFamily: font.body }) }))),
+      h("div", { style: { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" } },
+        btn("Add trade", addTrade, true),
+        h("span", { style: { fontFamily: font.body, fontSize: 12, color: T.inkSoft } },
+          "Round trip costs " + money(2 * (parseFloat(commission) || 0)) + " in commissions."),
+        msg ? h("span", { style: { fontFamily: font.body, fontSize: 12, fontWeight: 700, color: T.amber } }, msg) : null)
+    ),
+
+    h(Card, null,
       SectionLabel("Account"),
       !hasOpening ? h("div", { style: { fontFamily: font.body, fontSize: 12.5, color: T.inkSoft, lineHeight: 1.55, marginBottom: 10 } },
         "Start by entering the account's opening balance below. Every number here is computed from the cash movements and closed trades - nothing is typed in as a total.") : null,
@@ -1132,50 +1144,7 @@ function TradesScreen() {
       curve.length >= 2 ? h("div", { style: { marginTop: 12, borderTop: "1px solid " + T.line, paddingTop: 10 } },
         h("div", { style: { fontFamily: font.body, fontSize: 10.5, fontWeight: 800, letterSpacing: 0.8, color: T.inkSoft, textTransform: "uppercase", marginBottom: 6 } }, "Balance over time"),
         h(EquityCurve, { points: curve }),
-        h("div", { style: { fontFamily: font.body, fontSize: 10.5, color: T.inkSoft, marginTop: 4 } }, "Brass dots are deposits and withdrawals; drawdown is measured on trading results only, so moving money in or out does not count as a high or a low.")) : null,
-
-      // TFSA room.
-      h("div", { style: { marginTop: 12, borderTop: "1px solid " + T.line, paddingTop: 10 } },
-        h("div", { style: { fontFamily: font.body, fontSize: 10.5, fontWeight: 800, letterSpacing: 0.8, color: T.inkSoft, textTransform: "uppercase", marginBottom: 6 } }, "TFSA contribution room \u00b7 " + thisYear),
-        roomIsCurrent ? h("div", { style: { fontFamily: font.body, fontSize: 13, color: T.ink, marginBottom: 6 } },
-          "Room left: ", h("b", { style: { fontFamily: font.mono, color: roomLeft < 0 ? T.down : roomLeft < 1000 ? T.amber : T.up } }, money(roomLeft)),
-          h("span", { style: { color: T.inkSoft } }, " \u00b7 " + money(depositsThisYear) + " deposited, " + money(withdrawnThisYear) + " withdrawn this year"),
-          roomLeft < 0 ? h("div", { style: { color: T.down, fontWeight: 700, marginTop: 4 } }, "Over the room you entered. CRA charges 1% a month on the excess - confirm your room in My Account.") : null) : null,
-        h("div", { style: { display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" } },
-          field("Room from CRA My Account for " + thisYear, input({ type: "number", inputMode: "decimal", step: "0.01", placeholder: "0.00", value: roomText, onChange: function (e) { setRoomText(e.target.value); } })),
-          btn("Save", saveRoom, false, { padding: "10px 14px" })),
-        h("div", { style: { fontFamily: font.body, fontSize: 10.5, color: T.inkSoft, marginTop: 6, lineHeight: 1.5 } },
-          "The app only subtracts deposits you log here. Withdrawals do not restore room until January 1 next year, so they are not added back."))
-    ),
-
-    h(Card, null,
-      SectionLabel("Cash in / out"),
-      h("div", { style: { display: "flex", gap: 6, marginBottom: 10 } },
-        (hasOpening ? ["deposit", "withdrawal", "adjustment"] : ["opening", "deposit", "withdrawal", "adjustment"]).map(function (k) {
-          const on = mvType === k;
-          return h("button", { key: k, onClick: function () { setMvType(k); }, style: {
-            flex: "1 1 0", fontFamily: font.body, fontSize: 12, fontWeight: 800, padding: "8px 4px", borderRadius: 9, cursor: "pointer",
-            border: "1.5px solid " + (on ? T.brass : T.line), background: on ? T.brassSoft : T.field, color: on ? T.heading : T.inkSoft } },
-            k === "opening" ? "Opening" : k.charAt(0).toUpperCase() + k.slice(1));
-        })),
-      h("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 } },
-        field(mvType === "adjustment" ? "Amount (negative to reduce)" : "Amount", input({ type: "number", inputMode: "decimal", step: "0.01", placeholder: "0.00", value: mvAmount, onChange: function (e) { setMvAmount(e.target.value); } })),
-        field("Date", input({ type: "date", value: mvDate, onChange: function (e) { setMvDate(e.target.value); } }))),
-      h("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 } },
-        field("Note", input({ type: "text", placeholder: mvType === "adjustment" ? "e.g. interest, fee, correction" : "optional", value: mvNote, onChange: function (e) { setMvNote(e.target.value); }, style: Object.assign({}, inputStyle, { fontFamily: font.body }) }))),
-      h("div", { style: { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" } },
-        btn(mvType === "opening" ? "Set opening balance" : "Add " + mvType, addMovement, true),
-        movements.length ? btn((showMovements ? "Hide" : "Show") + " history (" + movements.length + ")", function () { setShowMovements(!showMovements); }) : null),
-      showMovements && movements.length ? h("div", { style: { marginTop: 12, borderTop: "1px solid " + T.line } },
-        movements.map(function (m) {
-          const amt = movementAmount(m);
-          return h("div", { key: m.id, style: { display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderBottom: "1px solid " + T.line } },
-            h("span", { style: { fontFamily: font.mono, fontSize: 12, color: T.inkSoft } }, shortDate(m.date)),
-            h("span", { style: { fontFamily: font.body, fontSize: 12.5, fontWeight: 700, color: T.ink } }, mvLabel[m.type]),
-            m.note ? h("span", { style: { fontFamily: font.body, fontSize: 11.5, color: T.inkSoft, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, m.note) : null,
-            h("span", { style: { marginLeft: "auto", fontFamily: font.mono, fontSize: 13.5, fontWeight: 800, color: amt < 0 ? T.down : T.up } }, money(amt, true)),
-            btn(confirmDel === m.id ? "Sure?" : "\u2715", function () { deleteMovement(m.id); }, false, { padding: "5px 8px", fontSize: 11.5, color: confirmDel === m.id ? T.down : T.inkSoft }));
-        })) : null
+        h("div", { style: { fontFamily: font.body, fontSize: 10.5, color: T.inkSoft, marginTop: 4 } }, "Brass dots are deposits and withdrawals; drawdown is measured on trading results only, so moving money in or out does not count as a high or a low.")) : null
     ),
 
     h(Card, null,
@@ -1196,29 +1165,6 @@ function TradesScreen() {
       (withCall + againstCall) ? h("div", { style: { fontFamily: font.body, fontSize: 12, color: T.inkSoft, lineHeight: 1.55, marginTop: 10, borderTop: "1px solid " + T.line, paddingTop: 10 } },
         "Following the model's call: ", h("b", { style: { color: withNet >= 0 ? T.up : T.down } }, money(withNet, true)), " across " + withCall + ". ",
         againstCall ? ["Going against it: ", h("b", { key: "a", style: { color: againstNet >= 0 ? T.up : T.down } }, money(againstNet, true)), " across " + againstCall + "."] : null) : null
-    ),
-
-    h(Card, null,
-      SectionLabel("Log a trade"),
-      h("div", { style: { display: "flex", gap: 8, marginBottom: 10 } },
-        toggle(UP_T, ticker, T.up, setTicker), toggle(DN_T, ticker, T.down, setTicker)),
-      P.state && P.state !== "none" ? h("div", { style: { fontFamily: font.body, fontSize: 11.5, color: T.inkSoft, marginBottom: 10 } },
-        "Model this morning: " + (P.state === "up" ? UP_T : DN_T) + " at " + Math.round((P.probability || 0.5) * 100) + "%.") :
-        h("div", { style: { fontFamily: font.body, fontSize: 11.5, color: T.inkSoft, marginBottom: 10 } }, "Model this morning: no call."),
-      h("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 } },
-        field("Date", input({ type: "date", value: date, onChange: function (e) { setDate(e.target.value); } })),
-        field("Shares", input({ type: "number", inputMode: "numeric", placeholder: "0", value: shares, onChange: function (e) { setShares(e.target.value); } }))),
-      h("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 } },
-        field("Buy price", input({ type: "number", inputMode: "decimal", step: "0.01", placeholder: "0.00", value: buy, onChange: function (e) { setBuy(e.target.value); } })),
-        field("Sell price (blank = still open)", input({ type: "number", inputMode: "decimal", step: "0.01", placeholder: "0.00", value: sell, onChange: function (e) { setSell(e.target.value); } }))),
-      h("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 } },
-        field("Commission per order", input({ type: "number", inputMode: "decimal", step: "0.01", value: commission, onChange: function (e) { updateCommission(e.target.value); } })),
-        field("Note", input({ type: "text", placeholder: "optional", value: note, onChange: function (e) { setNote(e.target.value); }, style: Object.assign({}, inputStyle, { fontFamily: font.body }) }))),
-      h("div", { style: { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" } },
-        btn("Add trade", addTrade, true),
-        h("span", { style: { fontFamily: font.body, fontSize: 12, color: T.inkSoft } },
-          "Round trip costs " + money(2 * (parseFloat(commission) || 0)) + " in commissions."),
-        msg ? h("span", { style: { fontFamily: font.body, fontSize: 12, fontWeight: 700, color: T.amber } }, msg) : null)
     ),
 
     h(Card, { style: { padding: "13px 12px" } },
@@ -1278,6 +1224,36 @@ function TradesScreen() {
               h("td", { style: { borderTop: "2px solid " + T.brass } }))))),
       h("div", { style: { fontFamily: font.body, fontSize: 11, color: T.inkSoft, marginTop: 8, lineHeight: 1.5 } },
         "P/L is net of commissions. Weeks run Monday to Friday by buy date. Open trades sit in their week but do not count until closed. Tap a row for detail.")
+    ),
+
+    h(Card, null,
+      SectionLabel("Cash in / out"),
+      h("div", { style: { display: "flex", gap: 6, marginBottom: 10 } },
+        (hasOpening ? ["deposit", "withdrawal", "adjustment"] : ["opening", "deposit", "withdrawal", "adjustment"]).map(function (k) {
+          const on = mvType === k;
+          return h("button", { key: k, onClick: function () { setMvType(k); }, style: {
+            flex: "1 1 0", fontFamily: font.body, fontSize: 12, fontWeight: 800, padding: "8px 4px", borderRadius: 9, cursor: "pointer",
+            border: "1.5px solid " + (on ? T.brass : T.line), background: on ? T.brassSoft : T.field, color: on ? T.heading : T.inkSoft } },
+            k === "opening" ? "Opening" : k.charAt(0).toUpperCase() + k.slice(1));
+        })),
+      h("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 } },
+        field(mvType === "adjustment" ? "Amount (negative to reduce)" : "Amount", input({ type: "number", inputMode: "decimal", step: "0.01", placeholder: "0.00", value: mvAmount, onChange: function (e) { setMvAmount(e.target.value); } })),
+        field("Date", input({ type: "date", value: mvDate, onChange: function (e) { setMvDate(e.target.value); } }))),
+      h("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 } },
+        field("Note", input({ type: "text", placeholder: mvType === "adjustment" ? "e.g. interest, fee, correction" : "optional", value: mvNote, onChange: function (e) { setMvNote(e.target.value); }, style: Object.assign({}, inputStyle, { fontFamily: font.body }) }))),
+      h("div", { style: { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" } },
+        btn(mvType === "opening" ? "Set opening balance" : "Add " + mvType, addMovement, true),
+        movements.length ? btn((showMovements ? "Hide" : "Show") + " history (" + movements.length + ")", function () { setShowMovements(!showMovements); }) : null),
+      showMovements && movements.length ? h("div", { style: { marginTop: 12, borderTop: "1px solid " + T.line } },
+        movements.map(function (m) {
+          const amt = movementAmount(m);
+          return h("div", { key: m.id, style: { display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderBottom: "1px solid " + T.line } },
+            h("span", { style: { fontFamily: font.mono, fontSize: 12, color: T.inkSoft } }, shortDate(m.date)),
+            h("span", { style: { fontFamily: font.body, fontSize: 12.5, fontWeight: 700, color: T.ink } }, mvLabel[m.type]),
+            m.note ? h("span", { style: { fontFamily: font.body, fontSize: 11.5, color: T.inkSoft, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, m.note) : null,
+            h("span", { style: { marginLeft: "auto", fontFamily: font.mono, fontSize: 13.5, fontWeight: 800, color: amt < 0 ? T.down : T.up } }, money(amt, true)),
+            btn(confirmDel === m.id ? "Sure?" : "\u2715", function () { deleteMovement(m.id); }, false, { padding: "5px 8px", fontSize: 11.5, color: confirmDel === m.id ? T.down : T.inkSoft }));
+        })) : null
     ),
 
     h(Card, null,
