@@ -811,6 +811,32 @@ function EquityCurve(props) {
     h("circle", { cx: X(pts.length - 1), cy: Y(last), r: 3.2, fill: color }));
 }
 
+// Bar chart of signed values, zero line in the middle-ish. Labels every
+// bar when there are few, every other when there are many.
+function BarChart(props) {
+  const bars = props.bars;
+  const w = 320, hgt = 150, padL = 4, padR = 4, padT = 16, padB = 22;
+  const vals = bars.map(function (b) { return b.value; });
+  const hi = Math.max(0, Math.max.apply(null, vals)), lo = Math.min(0, Math.min.apply(null, vals));
+  const span = (hi - lo) || 1;
+  const Y = function (v) { return padT + (1 - (v - lo) / span) * (hgt - padT - padB); };
+  const n = bars.length, slot = (w - padL - padR) / n, bw = Math.max(4, Math.min(22, slot * 0.66));
+  const zero = Y(0);
+  const every = n > 12 ? 2 : 1;
+  return h("svg", { width: "100%", viewBox: "0 0 " + w + " " + hgt, role: "img", "aria-label": "Net profit and loss by period", style: { display: "block" } },
+    h("line", { x1: padL, y1: zero, x2: w - padR, y2: zero, stroke: T.line, strokeWidth: 1 }),
+    bars.map(function (b, i) {
+      const x = padL + i * slot + (slot - bw) / 2;
+      const y = Y(b.value), top = Math.min(y, zero), hgtBar = Math.max(1.5, Math.abs(y - zero));
+      const c = b.value > 0 ? T.up : b.value < 0 ? T.down : T.neutral;
+      return h("g", { key: b.key },
+        h("rect", { x: x, y: top, width: bw, height: hgtBar, rx: 2, fill: c, opacity: 0.9 }),
+        n <= 12 ? h("text", { x: x + bw / 2, y: b.value >= 0 ? top - 4 : top + hgtBar + 10, textAnchor: "middle", fontFamily: font.mono, fontSize: 8.5, fontWeight: 700, fill: c },
+          (b.value > 0 ? "+" : b.value < 0 ? "\u2212" : "") + Math.abs(b.value).toFixed(0)) : null,
+        (i % every === 0 || i === n - 1) ? h("text", { x: x + bw / 2, y: hgt - 6, textAnchor: "middle", fontFamily: font.body, fontSize: 8.5, fill: T.inkSoft }, b.label) : null);
+    }));
+}
+
 function TradesScreen() {
   const [trades, setTrades] = useState(loadTrades);
   const [commission, setCommission] = useState(loadCommission);
@@ -823,6 +849,10 @@ function TradesScreen() {
   const [mvDate, setMvDate] = useState(todayISO());
   const [mvNote, setMvNote] = useState("");
   const [showMovements, setShowMovements] = useState(false);
+  const [seg, setSeg] = useState("log");
+  const [ledgerRange, setLedgerRange] = useState("month");
+  const [perfRange, setPerfRange] = useState("day");
+  const [confirmClose, setConfirmClose] = useState(null);
   const I = D.instruments || {};
   const UP_T = (I.up && I.up.ticker) || "HOU.TO";
   const DN_T = (I.down && I.down.ticker) || "HOD.TO";
@@ -862,8 +892,11 @@ function TradesScreen() {
   const closeTrade = function (id) {
     const s = parseFloat(closing[id]);
     if (!(s > 0)) return flash("Enter the sell price first.");
+    // Two taps: a wrong sell price is the most expensive typo on this screen.
+    if (confirmClose !== id) { setConfirmClose(id); setTimeout(function () { setConfirmClose(null); }, 4000); return; }
     persist(trades.map(function (t) { return t.id === id ? Object.assign({}, t, { sell: s }) : t; }));
     const c = Object.assign({}, closing); delete c[id]; setClosing(c);
+    setConfirmClose(null);
     flash("Closed.");
   };
   const deleteTrade = function (id) {
@@ -894,6 +927,13 @@ function TradesScreen() {
   net = Math.round(net * 100) / 100; gross = Math.round(gross * 100) / 100; fees = Math.round(fees * 100) / 100;
   const netColor = net > 0 ? T.up : net < 0 ? T.down : T.heading;
   const plColor = function (n) { return n > 0 ? T.up : n < 0 ? T.down : T.heading; };
+  // Percent return on money committed. Signed, one decimal.
+  const pctText = function (pl, cost) {
+    if (!(cost > 0)) return "";
+    const v = (pl / cost) * 100;
+    return (v > 0 ? "+" : v < 0 ? "\u2212" : "") + Math.abs(v).toFixed(1) + "%";
+  };
+  const allCost = closed.reduce(function (s, t) { return s + t.shares * t.buy; }, 0);
 
   // ---- Account -----------------------------------------------------------
   const cents = function (x) { return Math.round(x * 100) / 100; };
@@ -990,17 +1030,37 @@ function TradesScreen() {
     const d = new Date(key + "-15T12:00:00");
     return ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"][d.getMonth()] + " " + d.getFullYear();
   };
+  // Ledger range filter. "month" is the current calendar month; "3m" is
+  // the last three calendar months including this one.
+  const rangeStart = (function () {
+    const t = todayISO();
+    if (ledgerRange === "month") return t.slice(0, 7) + "-01";
+    if (ledgerRange === "3m") {
+      const d = new Date(t.slice(0, 4), parseInt(t.slice(5, 7), 10) - 3, 1, 12);
+      const p = function (x) { return (x < 10 ? "0" : "") + x; };
+      return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-01";
+    }
+    return "0000-00-00";
+  })();
+  const shownTrades = trades.filter(function (t) { return t.date >= rangeStart; });
+  const shown = { net: 0, closed: 0, open: 0, cost: 0 };
+  shownTrades.forEach(function (t) {
+    const p = tradePnl(t);
+    if (p) { shown.net += p.net; shown.closed += 1; shown.cost += t.shares * t.buy; } else shown.open += 1;
+  });
+  shown.net = cents(shown.net);
+
   const groups = (function () {
     const months = {};
-    trades.forEach(function (t) {
+    shownTrades.forEach(function (t) {
       const mk = t.date.slice(0, 7), wk = mondayOf(t.date);
-      if (!months[mk]) months[mk] = { key: mk, weeks: {}, net: 0, closed: 0, wins: 0, open: 0 };
+      if (!months[mk]) months[mk] = { key: mk, weeks: {}, net: 0, closed: 0, wins: 0, open: 0, cost: 0 };
       const m = months[mk];
-      if (!m.weeks[wk]) m.weeks[wk] = { key: wk, trades: [], net: 0, closed: 0, wins: 0, open: 0 };
+      if (!m.weeks[wk]) m.weeks[wk] = { key: wk, trades: [], net: 0, closed: 0, wins: 0, open: 0, cost: 0 };
       const w = m.weeks[wk];
       w.trades.push(t);
       const p = tradePnl(t);
-      if (p) { w.net += p.net; w.closed += 1; m.net += p.net; m.closed += 1; if (p.net > 0) { w.wins += 1; m.wins += 1; } }
+      if (p) { w.net += p.net; w.closed += 1; m.net += p.net; m.closed += 1; w.cost += t.shares * t.buy; m.cost += t.shares * t.buy; if (p.net > 0) { w.wins += 1; m.wins += 1; } }
       else { w.open += 1; m.open += 1; }
     });
     return Object.keys(months).sort().reverse().map(function (mk) {
@@ -1019,12 +1079,27 @@ function TradesScreen() {
   // across every portion of it.
   const thisWeek = (function () {
     let acc = null;
-    groups.forEach(function (m) { m.weeks.forEach(function (w) {
-      if (w.key !== thisWeekKey) return;
-      if (!acc) acc = { key: w.key, net: 0, closed: 0, wins: 0, open: 0 };
-      acc.net += w.net; acc.closed += w.closed; acc.wins += w.wins; acc.open += w.open;
-    }); });
+    trades.forEach(function (t) {
+      if (mondayOf(t.date) !== thisWeekKey) return;
+      if (!acc) acc = { key: thisWeekKey, net: 0, closed: 0, wins: 0, open: 0 };
+      const p = tradePnl(t);
+      if (p) { acc.net = cents(acc.net + p.net); acc.closed += 1; if (p.net > 0) acc.wins += 1; } else acc.open += 1;
+    });
     return acc;
+  })();
+
+  // Performance buckets: net P/L per day / week / month over closed trades.
+  const perfBars = (function () {
+    const buckets = {};
+    closed.forEach(function (t) {
+      const k = perfRange === "day" ? t.date : perfRange === "week" ? mondayOf(t.date) : t.date.slice(0, 7);
+      buckets[k] = cents((buckets[k] || 0) + tradePnl(t).net);
+    });
+    const keys = Object.keys(buckets).sort();
+    const limit = perfRange === "day" ? 20 : 12;
+    return keys.slice(-limit).map(function (k) {
+      return { key: k, label: perfRange === "month" ? monthLabel(k).slice(0, 3) : shortDate(k), value: buckets[k] };
+    });
   })();
 
   const cell = function (align) {
@@ -1039,7 +1114,8 @@ function TradesScreen() {
         label, h("span", { style: { fontWeight: 600, color: T.inkSoft } }, " \u00b7 " + [desc, od].filter(Boolean).join(", "))),
       h("td", { style: { padding: "7px 4px", textAlign: "right", fontWeight: 800, fontSize: isMonth ? 14 : 13, color: g.closed ? plColor(g.net) : T.inkSoft, borderBottom: "1px solid " + T.line, whiteSpace: "nowrap" } },
         g.closed ? money(g.net, true) : "\u2014"),
-      h("td", { style: { borderBottom: "1px solid " + T.line } }));
+      h("td", { style: { padding: "7px 4px", textAlign: "right", fontSize: 11.5, color: g.closed ? plColor(g.net) : T.inkSoft, borderBottom: "1px solid " + T.line, whiteSpace: "nowrap" } },
+        g.closed ? pctText(g.net, g.cost) : ""));
   };
 
   const field = function (label, node) {
@@ -1104,7 +1180,19 @@ function TradesScreen() {
   };
 
   return h("div", null,
-    h(Card, null,
+    // Segmented control. Log is the default: it is the screen that has to be
+    // fast. Everything else is a tap away and out of the way.
+    h("div", { style: { display: "flex", gap: 4, background: T.btn2, borderRadius: 12, padding: 4, marginBottom: 12 } },
+      [["log", "Log"], ["ledger", "Ledger"], ["perf", "Performance"], ["account", "Account"]].map(function (s) {
+        const on = seg === s[0];
+        return h("button", { key: s[0], onClick: function () { setSeg(s[0]); }, "aria-current": on ? "page" : undefined, style: {
+          flex: "1 1 0", fontFamily: font.body, fontSize: 12.5, fontWeight: 800, padding: "9px 2px", borderRadius: 9, cursor: "pointer",
+          border: "none", background: on ? T.card : "transparent", color: on ? T.heading : T.inkSoft,
+          boxShadow: on ? "0 1px 2px rgba(0,0,0,0.12)" : "none" } }, s[1]);
+      })),
+
+    seg === "log" ? [
+    h(Card, { key: "log" },
       SectionLabel("Log a trade"),
       h("div", { style: { display: "flex", gap: 8, marginBottom: 10 } },
         toggle(UP_T, ticker, T.up, setTicker), toggle(DN_T, ticker, T.down, setTicker)),
@@ -1128,52 +1216,31 @@ function TradesScreen() {
           "Round trip costs " + money(2 * (parseFloat(commission) || 0)) + " in commissions."),
         msg ? h("span", { style: { fontFamily: font.body, fontSize: 12, fontWeight: 700, color: T.amber } }, msg) : null)
     ),
+      // A one-line read of where things stand, so sizing a trade does not
+      // need a trip to another segment.
+      hasOpening || closed.length ? h(Card, { key: "strip", style: { padding: "12px 16px" } },
+        h("div", { style: { display: "flex", gap: 4 } },
+          stat("balance", money(balance), T.heading),
+          stat("this week", thisWeek && thisWeek.closed ? money(thisWeek.net, true) : "\u2014", thisWeek && thisWeek.closed ? plColor(thisWeek.net) : T.inkSoft),
+          stat("streak", streak ? streak.n + (streak.kind === "win" ? "W" : streak.kind === "loss" ? "L" : "=") : "\u2014", streak ? (streak.kind === "win" ? T.up : streak.kind === "loss" ? T.down : T.heading) : T.inkSoft))) : null
+    ] : null,
 
-    h(Card, null,
-      SectionLabel("Account"),
-      !hasOpening ? h("div", { style: { fontFamily: font.body, fontSize: 12.5, color: T.inkSoft, lineHeight: 1.55, marginBottom: 10 } },
-        "Start by entering the account's opening balance below. Every number here is computed from the cash movements and closed trades - nothing is typed in as a total.") : null,
-      h("div", { style: { fontFamily: font.mono, fontSize: 34, fontWeight: 700, color: T.heading, letterSpacing: -0.5 } }, money(balance)),
-      h("div", { style: { fontFamily: font.body, fontSize: 12, color: T.inkSoft, marginTop: 2 } },
-        openCost ? "Cash " + money(cashAvail) + " \u00b7 " + money(openCost) + " in open positions at cost" : "All cash"),
-      h("div", { style: { display: "flex", gap: 4, marginTop: 12, borderTop: "1px solid " + T.line, paddingTop: 10 } },
-        stat("return", returnPct === null ? "\u2014" : (returnPct >= 0 ? "+" : "\u2212") + Math.abs(returnPct).toFixed(1) + "%", returnPct === null ? T.inkSoft : plColor(returnPct)),
-        stat("drawdown now", closed.length ? money(-ddNow) : "\u2014", ddNow > 0 ? T.down : T.heading),
-        stat("worst drawdown", closed.length ? money(-maxDD) : "\u2014", maxDD > 0 ? T.down : T.heading),
-        stat("streak", streak ? streak.n + (streak.kind === "win" ? "W" : streak.kind === "loss" ? "L" : "=") : "\u2014", streak ? (streak.kind === "win" ? T.up : streak.kind === "loss" ? T.down : T.heading) : T.inkSoft)),
-      curve.length >= 2 ? h("div", { style: { marginTop: 12, borderTop: "1px solid " + T.line, paddingTop: 10 } },
-        h("div", { style: { fontFamily: font.body, fontSize: 10.5, fontWeight: 800, letterSpacing: 0.8, color: T.inkSoft, textTransform: "uppercase", marginBottom: 6 } }, "Balance over time"),
-        h(EquityCurve, { points: curve }),
-        h("div", { style: { fontFamily: font.body, fontSize: 10.5, color: T.inkSoft, marginTop: 4 } }, "Brass dots are deposits and withdrawals; drawdown is measured on trading results only, so moving money in or out does not count as a high or a low.")) : null
-    ),
-
-    h(Card, null,
-      SectionLabel("Net result, all closed trades"),
-      h("div", { style: { fontFamily: font.mono, fontSize: 34, fontWeight: 700, color: netColor, letterSpacing: -0.5 } }, money(net, true)),
-      h("div", { style: { fontFamily: font.body, fontSize: 12, color: T.inkSoft, marginTop: 2 } },
-        "after " + money(fees) + " in commissions on " + closed.length + " closed trade" + (closed.length === 1 ? "" : "s") +
-        (open ? " \u00b7 " + open + " open" : "")),
-      h("div", { style: { fontFamily: font.body, fontSize: 13, color: T.ink, marginTop: 8 } },
-        "This week: ", h("b", { style: { fontFamily: font.mono, color: thisWeek && thisWeek.closed ? plColor(thisWeek.net) : T.inkSoft } },
-          thisWeek && thisWeek.closed ? money(thisWeek.net, true) : "nothing closed yet"),
-        thisWeek && thisWeek.closed ? h("span", { style: { color: T.inkSoft } }, " on " + thisWeek.closed + " trade" + (thisWeek.closed === 1 ? "" : "s")) : null),
-      closed.length ? h("div", { style: { display: "flex", gap: 4, marginTop: 12, borderTop: "1px solid " + T.line, paddingTop: 10 } },
-        stat("win rate", Math.round(100 * wins / closed.length) + "%", wins / closed.length >= 0.5 ? T.up : T.down),
-        stat("avg / trade", money(net / closed.length, true), net >= 0 ? T.up : T.down),
-        stat("best", money(best, true), T.up),
-        stat("worst", money(worst, true), T.down)) : null,
-      (withCall + againstCall) ? h("div", { style: { fontFamily: font.body, fontSize: 12, color: T.inkSoft, lineHeight: 1.55, marginTop: 10, borderTop: "1px solid " + T.line, paddingTop: 10 } },
-        "Following the model's call: ", h("b", { style: { color: withNet >= 0 ? T.up : T.down } }, money(withNet, true)), " across " + withCall + ". ",
-        againstCall ? ["Going against it: ", h("b", { key: "a", style: { color: againstNet >= 0 ? T.up : T.down } }, money(againstNet, true)), " across " + againstCall + "."] : null) : null
-    ),
-
-    h(Card, { style: { padding: "13px 12px" } },
-      SectionLabel("Ledger"),
-      trades.length === 0 ? h("div", { style: { fontFamily: font.body, fontSize: 12.5, color: T.inkSoft } }, "Nothing logged yet.") :
+    seg === "ledger" ? [
+    h(Card, { key: "ledger", style: { padding: "13px 12px" } },
+      h("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 8 } },
+        SectionLabel("Ledger"),
+        h("div", { style: { marginLeft: "auto", display: "flex", gap: 4, marginBottom: 8 } },
+          [["month", "This month"], ["3m", "3 months"], ["all", "All"]].map(function (o) {
+            const on = ledgerRange === o[0];
+            return h("button", { key: o[0], onClick: function () { setLedgerRange(o[0]); }, style: {
+              fontFamily: font.body, fontSize: 11, fontWeight: 800, padding: "5px 9px", borderRadius: 999, cursor: "pointer",
+              border: "1px solid " + (on ? T.brass : T.line), background: on ? T.brassSoft : "transparent", color: on ? T.heading : T.inkSoft } }, o[1]);
+          }))),
+      shownTrades.length === 0 ? h("div", { style: { fontFamily: font.body, fontSize: 12.5, color: T.inkSoft } }, trades.length ? "No trades in this range." : "Nothing logged yet.") :
       h("div", { style: { overflowX: "auto", WebkitOverflowScrolling: "touch", margin: "0 -4px" } },
         h("table", { style: { borderCollapse: "collapse", width: "100%", minWidth: 340, fontFamily: font.mono, fontSize: 12.5 } },
           h("thead", null,
-            h("tr", null, ["Date", "Ticker", "Shares", "Buy", "Sell", "P/L", ""].map(function (c, i) {
+            h("tr", null, ["Date", "Ticker", "Shares", "Buy", "Sell", "P/L", "%"].map(function (c, i) {
               return h("th", { key: i, style: { fontFamily: font.body, fontSize: 10, fontWeight: 800, letterSpacing: 0.8, color: T.inkSoft, textTransform: "uppercase",
                 textAlign: i === 0 || i === 1 ? "left" : "right", padding: "4px 4px 8px", borderBottom: "1px solid " + T.line, whiteSpace: "nowrap" } }, c);
             }))),
@@ -1192,7 +1259,7 @@ function TradesScreen() {
                   h("td", { style: cell() }, fmt(t.buy)),
                   h("td", { style: cell() }, p ? fmt(t.sell) : h("span", { style: { color: T.amber, fontFamily: font.body, fontSize: 11, fontWeight: 700 } }, "open")),
                   h("td", { style: Object.assign(cell(), { fontWeight: 800, color: p ? plColor(p.net) : T.inkSoft }) }, p ? money(p.net, true) : "\u2014"),
-                  h("td", { style: Object.assign(cell(), { width: 18, color: T.inkSoft, fontFamily: font.body }) }, isOpen ? "\u25B4" : "\u25BE")));
+                  h("td", { style: Object.assign(cell(), { color: p ? plColor(p.net) : T.inkSoft, fontSize: 11.5 }) }, p ? pctText(p.net, t.shares * t.buy) : "\u2014")));
                 if (isOpen) rows.push(h("tr", { key: t.id + "-x", onClick: function (e) { e.stopPropagation(); } },
                   h("td", { colSpan: 7, style: { padding: "2px 4px 10px", borderBottom: "1px solid " + T.line } },
                     h("div", { style: { fontFamily: font.body, fontSize: 11.5, color: T.inkSoft, lineHeight: 1.6 } },
@@ -1206,7 +1273,8 @@ function TradesScreen() {
                         onClick: function (e) { e.stopPropagation(); },
                         onChange: function (e) { const c = Object.assign({}, closing); c[t.id] = e.target.value; setClosing(c); },
                         style: Object.assign({}, inputStyle, { width: 120, padding: "6px 8px" }) }),
-                      p ? null : btn("Close trade", function () { closeTrade(t.id); }, true, { padding: "7px 10px", fontSize: 12.5 }),
+                      p ? null : btn(confirmClose === t.id ? "Confirm close at " + (closing[t.id] || "?") : "Close trade", function () { closeTrade(t.id); }, true,
+                        { padding: "7px 10px", fontSize: 12.5, background: confirmClose === t.id ? T.down : T.brass, borderColor: confirmClose === t.id ? T.down : T.brass, color: "#FFFFFF" }),
                       btn(confirmDel === t.id ? "Sure? tap again" : "Delete", function () { deleteTrade(t.id); }, false,
                         { padding: "7px 10px", fontSize: 12.5, marginLeft: "auto", color: confirmDel === t.id ? T.down : T.inkSoft })))));
               });
@@ -1217,16 +1285,78 @@ function TradesScreen() {
             return rows;
           })),
           h("tfoot", null,
-            h("tr", null,
+            ledgerRange !== "all" ? h("tr", null,
               h("td", { colSpan: 5, style: { padding: "10px 4px 4px", fontFamily: font.body, fontSize: 12, fontWeight: 800, color: T.heading, borderTop: "2px solid " + T.brass } },
+                (ledgerRange === "month" ? "This month" : "Last 3 months") + " \u00b7 " + shown.closed + " closed" + (shown.open ? ", " + shown.open + " open" : "")),
+              h("td", { style: { padding: "10px 4px 4px", textAlign: "right", fontWeight: 800, fontSize: 14, color: plColor(shown.net), borderTop: "2px solid " + T.brass } }, money(shown.net, true)),
+              h("td", { style: { padding: "10px 4px 4px", textAlign: "right", fontSize: 11.5, color: plColor(shown.net), borderTop: "2px solid " + T.brass } }, shown.closed ? pctText(shown.net, shown.cost) : "")) : null,
+            h("tr", null,
+              h("td", { colSpan: 5, style: { padding: (ledgerRange !== "all" ? "6px" : "10px") + " 4px 4px", fontFamily: font.body, fontSize: 12, fontWeight: 800, color: T.heading, borderTop: ledgerRange !== "all" ? "1px solid " + T.line : "2px solid " + T.brass } },
                 "All time \u00b7 " + closed.length + " closed" + (open ? ", " + open + " open" : "")),
-              h("td", { style: { padding: "10px 4px 4px", textAlign: "right", fontWeight: 800, fontSize: 14, color: plColor(net), borderTop: "2px solid " + T.brass } }, money(net, true)),
-              h("td", { style: { borderTop: "2px solid " + T.brass } }))))),
+              h("td", { style: { padding: (ledgerRange !== "all" ? "6px" : "10px") + " 4px 4px", textAlign: "right", fontWeight: 800, fontSize: 14, color: plColor(net), borderTop: ledgerRange !== "all" ? "1px solid " + T.line : "2px solid " + T.brass } }, money(net, true)),
+              h("td", { style: { padding: (ledgerRange !== "all" ? "6px" : "10px") + " 4px 4px", textAlign: "right", fontSize: 11.5, color: plColor(net), borderTop: ledgerRange !== "all" ? "1px solid " + T.line : "2px solid " + T.brass } }, closed.length ? pctText(net, allCost) : ""))))),
       h("div", { style: { fontFamily: font.body, fontSize: 11, color: T.inkSoft, marginTop: 8, lineHeight: 1.5 } },
-        "P/L is net of commissions. Weeks run Monday to Friday by buy date. Open trades sit in their week but do not count until closed. Tap a row for detail.")
-    ),
+        "P/L is net of commissions. % is net P/L on the money committed (shares \u00d7 buy price); for weeks and months it is on the total committed across their closed trades. Tap a row for detail, close, or delete.")
+    )
+    ] : null,
 
-    h(Card, null,
+    seg === "perf" ? [
+      h(Card, { key: "chart" },
+        h("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 4 } },
+          SectionLabel("Net P/L by " + (perfRange === "day" ? "day" : perfRange === "week" ? "week" : "month")),
+          h("div", { style: { marginLeft: "auto", display: "flex", gap: 4, marginBottom: 8 } },
+            [["day", "Day"], ["week", "Week"], ["month", "Month"]].map(function (o) {
+              const on = perfRange === o[0];
+              return h("button", { key: o[0], onClick: function () { setPerfRange(o[0]); }, style: {
+                fontFamily: font.body, fontSize: 11, fontWeight: 800, padding: "5px 9px", borderRadius: 999, cursor: "pointer",
+                border: "1px solid " + (on ? T.brass : T.line), background: on ? T.brassSoft : "transparent", color: on ? T.heading : T.inkSoft } }, o[1]);
+            }))),
+        perfBars.length ? h(BarChart, { bars: perfBars }) :
+          h("div", { style: { fontFamily: font.body, fontSize: 12.5, color: T.inkSoft } }, "No closed trades yet."),
+        perfBars.length ? h("div", { style: { fontFamily: font.body, fontSize: 11, color: T.inkSoft, marginTop: 6, lineHeight: 1.5 } },
+          (perfRange === "day" ? "Last " + perfBars.length + " trading days with a closed trade." :
+           perfRange === "week" ? "Last " + perfBars.length + " weeks with a closed trade, Monday to Friday." :
+           "Last " + perfBars.length + " months.") + " Net of commissions.") : null),
+    h(Card, { key: "net" },
+      SectionLabel("Net result, all closed trades"),
+      h("div", { style: { fontFamily: font.mono, fontSize: 34, fontWeight: 700, color: netColor, letterSpacing: -0.5 } }, money(net, true)),
+      h("div", { style: { fontFamily: font.body, fontSize: 12, color: T.inkSoft, marginTop: 2 } },
+        "after " + money(fees) + " in commissions on " + closed.length + " closed trade" + (closed.length === 1 ? "" : "s") +
+        (open ? " \u00b7 " + open + " open" : "")),
+      h("div", { style: { fontFamily: font.body, fontSize: 13, color: T.ink, marginTop: 8 } },
+        "This week: ", h("b", { style: { fontFamily: font.mono, color: thisWeek && thisWeek.closed ? plColor(thisWeek.net) : T.inkSoft } },
+          thisWeek && thisWeek.closed ? money(thisWeek.net, true) : "nothing closed yet"),
+        thisWeek && thisWeek.closed ? h("span", { style: { color: T.inkSoft } }, " on " + thisWeek.closed + " trade" + (thisWeek.closed === 1 ? "" : "s")) : null),
+      closed.length ? h("div", { style: { display: "flex", gap: 4, marginTop: 12, borderTop: "1px solid " + T.line, paddingTop: 10 } },
+        stat("win rate", Math.round(100 * wins / closed.length) + "%", wins / closed.length >= 0.5 ? T.up : T.down),
+        stat("avg / trade", money(net / closed.length, true), net >= 0 ? T.up : T.down),
+        stat("best", money(best, true), T.up),
+        stat("worst", money(worst, true), T.down)) : null,
+      (withCall + againstCall) ? h("div", { style: { fontFamily: font.body, fontSize: 12, color: T.inkSoft, lineHeight: 1.55, marginTop: 10, borderTop: "1px solid " + T.line, paddingTop: 10 } },
+        "Following the model's call: ", h("b", { style: { color: withNet >= 0 ? T.up : T.down } }, money(withNet, true)), " across " + withCall + ". ",
+        againstCall ? ["Going against it: ", h("b", { key: "a", style: { color: againstNet >= 0 ? T.up : T.down } }, money(againstNet, true)), " across " + againstCall + "."] : null) : null
+    ),
+      curve.length >= 2 ? h(Card, { key: "curve" },
+        SectionLabel("Balance over time"),
+        h(EquityCurve, { points: curve }),
+        h("div", { style: { fontFamily: font.body, fontSize: 10.5, color: T.inkSoft, marginTop: 4 } }, "Brass dots are deposits and withdrawals. Drawdown on the Account segment is measured on trading results only.")) : null
+    ] : null,
+
+    seg === "account" ? [
+    h(Card, { key: "acct" },
+      SectionLabel("Account"),
+      !hasOpening ? h("div", { style: { fontFamily: font.body, fontSize: 12.5, color: T.inkSoft, lineHeight: 1.55, marginBottom: 10 } },
+        "Start by entering the account's opening balance below. Every number here is computed from the cash movements and closed trades - nothing is typed in as a total.") : null,
+      h("div", { style: { fontFamily: font.mono, fontSize: 34, fontWeight: 700, color: T.heading, letterSpacing: -0.5 } }, money(balance)),
+      h("div", { style: { fontFamily: font.body, fontSize: 12, color: T.inkSoft, marginTop: 2 } },
+        openCost ? "Cash " + money(cashAvail) + " \u00b7 " + money(openCost) + " in open positions at cost" : "All cash"),
+      h("div", { style: { display: "flex", gap: 4, marginTop: 12, borderTop: "1px solid " + T.line, paddingTop: 10 } },
+        stat("return", returnPct === null ? "\u2014" : (returnPct >= 0 ? "+" : "\u2212") + Math.abs(returnPct).toFixed(1) + "%", returnPct === null ? T.inkSoft : plColor(returnPct)),
+        stat("drawdown now", closed.length ? money(-ddNow) : "\u2014", ddNow > 0 ? T.down : T.heading),
+        stat("worst drawdown", closed.length ? money(-maxDD) : "\u2014", maxDD > 0 ? T.down : T.heading),
+        stat("streak", streak ? streak.n + (streak.kind === "win" ? "W" : streak.kind === "loss" ? "L" : "=") : "\u2014", streak ? (streak.kind === "win" ? T.up : streak.kind === "loss" ? T.down : T.heading) : T.inkSoft))
+    ),
+    h(Card, { key: "cash" },
       SectionLabel("Cash in / out"),
       h("div", { style: { display: "flex", gap: 6, marginBottom: 10 } },
         (hasOpening ? ["deposit", "withdrawal", "adjustment"] : ["opening", "deposit", "withdrawal", "adjustment"]).map(function (k) {
@@ -1255,8 +1385,7 @@ function TradesScreen() {
             btn(confirmDel === m.id ? "Sure?" : "\u2715", function () { deleteMovement(m.id); }, false, { padding: "5px 8px", fontSize: 11.5, color: confirmDel === m.id ? T.down : T.inkSoft }));
         })) : null
     ),
-
-    h(Card, null,
+    h(Card, { key: "backup" },
       SectionLabel("Backup"),
       h("div", { style: { fontFamily: font.body, fontSize: 12, color: T.inkSoft, lineHeight: 1.55, marginBottom: 10 } },
         "This log lives only on this phone. Copy a backup into Notes or an email now and then; clearing Safari data or losing the phone loses the log."),
@@ -1270,7 +1399,9 @@ function TradesScreen() {
         onChange: function (e) { setRestoreText(e.target.value); },
         style: Object.assign({}, inputStyle, { fontSize: 12, fontFamily: font.mono, marginBottom: 8 }) }),
       restoreText.trim() ? btn("Restore (replaces the current log)", restore) : null
-    ),
+    )
+    ] : null,
+
     h(Disclaimer)
   );
 }
