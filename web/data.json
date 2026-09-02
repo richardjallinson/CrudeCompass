@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-02T10:57:22+00:00",
+  "generatedAt": "2026-09-02T11:11:28+00:00",
   "dataThrough": "2026-09-02",
   "isLive": true,
   "version": "v1C",
@@ -17,49 +17,49 @@
   },
   "asOf": "Data through Wed Sep 02 \u00b7 locked 8:00 AM ET",
   "spot": {
-    "last": 90.48,
-    "chg": 4.72,
-    "chgPct": 5.5
+    "last": 90.29,
+    "chg": 0.07,
+    "chgPct": 0.08
   },
   "prediction": {
-    "state": "none",
-    "probability": 0.5299,
-    "rawScore": 0.5011,
+    "state": "down",
+    "probability": 0.4662,
+    "rawScore": 0.4356,
     "nearEven": false,
-    "rangeLow": 88.67,
-    "rangeHigh": 92.29,
-    "rangePct": 2.0,
-    "etfRangePct": 4.01,
-    "instrument": null,
+    "rangeLow": 88.27,
+    "rangeHigh": 92.31,
+    "rangePct": 2.24,
+    "etfRangePct": 4.48,
+    "instrument": "HOD.TO",
     "drivers": [
       {
         "label": "Distance from 20-day mean",
         "dir": "down",
-        "note": "+0.84 sigma from the 20-day mean. Pushing the lean down."
+        "note": "+1.96 sigma from the 20-day mean. Pushing the lean down."
       },
       {
         "label": "Twenty-day trend",
         "dir": "up",
-        "note": "+13.18% over the window. Pushing the lean up."
+        "note": "+19.07% over the window. Pushing the lean up."
+      },
+      {
+        "label": "Yesterday's move",
+        "dir": "down",
+        "note": "+5.20% over the window. Pushing the lean down."
       },
       {
         "label": "Seasonality",
         "dir": "down",
         "note": "-0.8660. Pushing the lean down."
-      },
-      {
-        "label": "Managed-money crowding",
-        "dir": "up",
-        "note": "Managed-money net length sits at the 0th percentile of the last three years. Pushing the lean up."
       }
     ],
     "caution": "Resolution happens the next morning, not live at the 2:30 PM ET settlement: the pipeline runs once, before the open. Around scheduled releases the model's read applies to the session as a whole, not to the minutes after the print."
   },
   "briefing": {
-    "headline": "No edge today",
+    "headline": "Leaning down",
     "paragraphs": [
-      "WTI is firmer over the past week, +10.0% across five sessions, with realized volatility ordinary at 2.0% daily. The model is standing down today: the signals sit too close to even to be worth a call.",
-      "Brent trades $+4.73 against WTI. Managed-money positioning is middling, neither crowded nor cleared out (the 50th percentile of the last three years).",
+      "WTI is firmer over the past week, +9.8% across five sessions, with realized volatility elevated at 2.2% daily. The model leans to a down close today.",
+      "Brent trades $+4.43 against WTI. Managed-money positioning is unusually light, which leaves room for buying (the 3th percentile of the last three years).",
       "This briefing is assembled directly from the day's feature values \u2014 it says what the inputs say and nothing more. Narrative summaries of news arrive in v1D."
     ],
     "watching": [
@@ -163,8 +163,8 @@
     83.53,
     83.4,
     85.76,
-    85.76,
-    90.48
+    90.22,
+    90.29
   ],
   "chart5D": [
     87.36,
@@ -255,21 +255,21 @@
     83.53,
     83.4,
     85.76,
-    85.76,
-    90.48
+    90.22,
+    90.29
   ],
   "scoreboard": {
     "windowLabel": "Walk-forward validation (out of sample)",
-    "fired": 2017,
-    "standDowns": 1546,
+    "fired": 2020,
+    "standDowns": 1543,
     "hits": 0,
-    "accuracy": 0.5964,
-    "baseline": 0.506,
+    "accuracy": 0.5926,
+    "baseline": 0.5063,
     "baselineLabel": "always guess up",
     "liveAccuracy": 0.0,
     "liveResolved": 1,
     "liveStands": 2,
-    "brier": 0.2458,
+    "brier": 0.2461,
     "brierBaseline": 0.25,
     "beatsBaseline": true,
     "calibration": [
@@ -281,33 +281,33 @@
       },
       {
         "band": "40-45%",
-        "n": 246,
-        "predicted": 0.4261889659481754,
-        "actual": 0.4105691056910569
+        "n": 250,
+        "predicted": 0.4260963494194115,
+        "actual": 0.416
       },
       {
         "band": "45-50%",
-        "n": 778,
-        "predicted": 0.47175769889445873,
-        "actual": 0.45629820051413883
+        "n": 786,
+        "predicted": 0.471683553215291,
+        "actual": 0.4592875318066158
       },
       {
         "band": "50-55%",
-        "n": 672,
-        "predicted": 0.5399955435271632,
-        "actual": 0.5386904761904762
+        "n": 666,
+        "predicted": 0.5401020997269638,
+        "actual": 0.5435435435435435
       },
       {
         "band": "55-60%",
-        "n": 832,
-        "predicted": 0.5664804230379621,
-        "actual": 0.5432692307692307
+        "n": 830,
+        "predicted": 0.5664587739201014,
+        "actual": 0.5385542168674698
       },
       {
         "band": "60-101%",
-        "n": 366,
-        "predicted": 0.6824638449571231,
-        "actual": 0.6693989071038251
+        "n": 362,
+        "predicted": 0.6825378392868737,
+        "actual": 0.6685082872928176
       }
     ],
     "calibrationNote": "Of days the model put 0-40% on a direction, 40% resolved that way against 34% predicted (459 days). Closer together is better.",
