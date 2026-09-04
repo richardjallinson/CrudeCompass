@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-09-03T15:18:22+00:00",
-  "dataThrough": "2026-09-03",
+  "generatedAt": "2026-09-04T15:13:43+00:00",
+  "dataThrough": "2026-09-04",
   "isLive": true,
   "version": "v1C",
   "limitation": "The pipeline runs once, before the open, so a call is resolved the NEXT morning against the prior settlement rather than live at the 2:30 PM ET close. Prices are same-day closes from Yahoo Finance; the weekly EIA and CFTC series still publish with their normal lags.",
@@ -15,37 +15,37 @@
     },
     "leverage": 2.0
   },
-  "asOf": "Data through Thu Sep 03 \u00b7 locked 8:00 AM ET",
+  "asOf": "Data through Fri Sep 04 \u00b7 locked 8:00 AM ET",
   "spot": {
-    "last": 92.46,
-    "chg": 1.45,
-    "chgPct": 1.59
+    "last": 90.44,
+    "chg": -0.86,
+    "chgPct": -0.94
   },
   "prediction": {
     "state": "none",
-    "probability": 0.5024,
-    "rawScore": 0.4679,
+    "probability": 0.5198,
+    "rawScore": 0.4861,
     "nearEven": false,
-    "rangeLow": 90.42,
-    "rangeHigh": 94.5,
-    "rangePct": 2.21,
-    "etfRangePct": 4.41,
+    "rangeLow": 88.48,
+    "rangeHigh": 92.4,
+    "rangePct": 2.17,
+    "etfRangePct": 4.34,
     "instrument": null,
     "drivers": [
       {
         "label": "Distance from 20-day mean",
         "dir": "down",
-        "note": "+2.04 sigma from the 20-day mean. Pushing the lean down."
-      },
-      {
-        "label": "Twenty-day trend",
-        "dir": "up",
-        "note": "+20.99% over the window. Pushing the lean up."
+        "note": "+1.93 sigma from the 20-day mean. Pushing the lean down."
       },
       {
         "label": "Day of week",
         "dir": "down",
         "note": "+1.0000. Pushing the lean down."
+      },
+      {
+        "label": "Twenty-day trend",
+        "dir": "up",
+        "note": "+18.13% over the window. Pushing the lean up."
       },
       {
         "label": "Seasonality",
@@ -58,8 +58,8 @@
   "briefing": {
     "headline": "No edge today",
     "paragraphs": [
-      "WTI is firmer over the past week, +10.7% across five sessions, with realized volatility elevated at 2.2% daily. The model is standing down today: the signals sit too close to even to be worth a call.",
-      "Brent trades $+4.62 against WTI. Managed-money positioning is unusually light, which leaves room for buying (the 3th percentile of the last three years).",
+      "WTI is firmer over the past week, +8.4% across five sessions, with realized volatility ordinary at 2.2% daily. The model is standing down today: the signals sit too close to even to be worth a call.",
+      "Brent trades $+4.22 against WTI. Managed-money positioning is unusually light, which leaves room for buying (the 3th percentile of the last three years).",
       "This briefing is assembled directly from the day's feature values \u2014 it says what the inputs say and nothing more. Narrative summaries of news arrive in v1D."
     ],
     "watching": [
@@ -69,22 +69,6 @@
     ]
   },
   "events": [
-    {
-      "day": "Fri",
-      "date": "Sep 04",
-      "time": "1:00 PM ET",
-      "name": "Baker Hughes rig count",
-      "impact": "low",
-      "note": "Weekly US drilling activity. Slow-moving supply signal."
-    },
-    {
-      "day": "Fri",
-      "date": "Sep 04",
-      "time": "3:30 PM ET",
-      "name": "CFTC Commitments of Traders",
-      "impact": "medium",
-      "note": "Managed-money positioning as of Tuesday. The crowding gauge."
-    },
     {
       "day": "Tue",
       "date": "Sep 08",
@@ -132,10 +116,25 @@
       "name": "EIA Weekly Petroleum Status",
       "impact": "high",
       "note": "The week's main event. The surprise against consensus moves price, not the level."
+    },
+    {
+      "day": "Fri",
+      "date": "Sep 18",
+      "time": "1:00 PM ET",
+      "name": "Baker Hughes rig count",
+      "impact": "low",
+      "note": "Weekly US drilling activity. Slow-moving supply signal."
+    },
+    {
+      "day": "Fri",
+      "date": "Sep 18",
+      "time": "3:30 PM ET",
+      "name": "CFTC Commitments of Traders",
+      "impact": "medium",
+      "note": "Managed-money positioning as of Tuesday. The crowding gauge."
     }
   ],
   "chart1D": [
-    82.61,
     79.26,
     84.46,
     83.59,
@@ -164,10 +163,10 @@
     85.76,
     90.22,
     91.01,
-    92.46
+    91.3,
+    90.44
   ],
   "chart5D": [
-    106.42,
     102.27,
     95.08,
     94.81,
@@ -256,19 +255,20 @@
     85.76,
     90.22,
     91.01,
-    92.46
+    91.3,
+    90.44
   ],
   "scoreboard": {
     "windowLabel": "Walk-forward validation (out of sample)",
     "fired": 1598,
-    "standDowns": 1966,
+    "standDowns": 1967,
     "hits": 0,
     "accuracy": 0.5438,
-    "baseline": 0.5059,
+    "baseline": 0.5058,
     "baselineLabel": "always guess up",
     "liveAccuracy": 0.0,
     "liveResolved": 1,
-    "liveStands": 3,
+    "liveStands": 4,
     "brier": 0.2513,
     "brierBaseline": 0.25,
     "beatsBaseline": true,
@@ -293,9 +293,9 @@
       },
       {
         "band": "50-55%",
-        "n": 2098,
-        "predicted": 0.525305682360217,
-        "actual": 0.5190657769304099
+        "n": 2099,
+        "predicted": 0.5252943922385789,
+        "actual": 0.5188184849928538
       },
       {
         "band": "55-60%",
@@ -312,14 +312,20 @@
     ],
     "calibrationNote": "Of days the model put 60-101% on a direction, 58% resolved that way against 75% predicted (71 days). Closer together is better.",
     "scoredCalibrated": true,
-    "scoredDays": 3354,
-    "outOfSampleDays": 3564,
+    "scoredDays": 3355,
+    "outOfSampleDays": 3565,
     "log": [
+      {
+        "date": "2026-09-07",
+        "call": "none",
+        "prob": 0.52,
+        "outcome": "open"
+      },
       {
         "date": "2026-09-04",
         "call": "none",
         "prob": 0.502,
-        "outcome": "open"
+        "outcome": "stand"
       },
       {
         "date": "2026-09-03",
@@ -350,7 +356,7 @@
   "sources": [
     {
       "name": "Yahoo Finance \u2014 WTI (CL=F), Brent, dollar index, natural gas",
-      "status": "Live \u00b7 through 2026-09-03"
+      "status": "Live \u00b7 through 2026-09-04"
     },
     {
       "name": "EIA \u2014 crude and Cushing stocks",
@@ -376,7 +382,7 @@
   "model": {
     "kind": "logistic regression (L2, standardized)",
     "features": 24,
-    "trainedThrough": "2026-09-03",
+    "trainedThrough": "2026-09-04",
     "standDownBand": [
       0.45,
       0.55
