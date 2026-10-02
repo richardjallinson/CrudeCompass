@@ -59,6 +59,19 @@ def build_payload(df, cols, prediction, evaluation, model_meta):
     hits = [r for r in resolved if r["outcome"] == "hit"]
     live_acc = (len(hits) / len(resolved)) if resolved else None
 
+    # How often the model has actually FIRED live, against how often the
+    # walk-forward said it would. This is the first thing to check when the
+    # app feels quiet: a low fire rate is a statement about the stand-down
+    # band meeting an unusual market, not about the model's accuracy. It is
+    # reported, never acted on.
+    live_graded = len(resolved) + len(stands)
+    live_fire_rate = (len(resolved) / live_graded) if live_graded else None
+    _ev = evaluation or {}
+    val_fired = _ev.get("n_fired", 0) or 0
+    val_stood = _ev.get("n_stood_down", 0) or 0
+    val_total = val_fired + val_stood
+    val_fire_rate = (val_fired / val_total) if val_total else None
+
     # 30 rows: about six weeks of trading days. Enough that the pattern of
     # hits, misses and stand-downs is visible at a glance rather than a
     # flattering slice. Raise LOG_ROWS if you want a longer tail.
@@ -97,19 +110,19 @@ def build_payload(df, cols, prediction, evaluation, model_meta):
         "prediction": prediction,
         "briefing": _briefing(df, prediction, evaluation),
         "events": _events(last_date),
-        "chart1D": [round(float(v), 2) for v in df["wti"].tail(30).tolist()],
-        "chart5D": [round(float(v), 2) for v in df["wti"].tail(90).tolist()],
         "scoreboard": {
             "windowLabel": "Walk-forward validation (out of sample)",
             "fired": ev.get("n_fired", 0),
             "standDowns": ev.get("n_stood_down", 0),
-            "hits": len(hits),
+            "firedRate": round(val_fire_rate, 4) if val_fire_rate is not None else None,
             "accuracy": round(ev.get("accuracy_when_fired", 0.0) or 0.0, 4),
             "baseline": round(ev.get("baseline_up_rate", 0.0) or 0.0, 4),
             "baselineLabel": "always guess up",
             "liveAccuracy": round(live_acc, 4) if live_acc is not None else None,
             "liveResolved": len(resolved),
             "liveStands": len(stands),
+            "liveHits": len(hits),
+            "liveFiredRate": round(live_fire_rate, 4) if live_fire_rate is not None else None,
             "brier": round(ev.get("brier", 0.0) or 0.0, 4),
             "brierBaseline": round(ev.get("brier_baseline", 0.0) or 0.0, 4),
             "beatsBaseline": ev.get("beats_baseline", False),
