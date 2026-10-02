@@ -198,8 +198,6 @@ const sampleData = {
 
   // Two sample series, both ending at the same last price so the toggle
   // reads as one instrument at two zoom levels rather than two charts.
-  chart1D: [83.34, 83.30, 83.21, 83.25, 83.11, 82.98, 83.02, 82.88, 82.71, 82.64, 82.75, 82.69, 82.55, 82.40, 82.47, 82.31, 82.20, 82.26, 82.41, 82.35, 82.52, 82.66, 82.58, 82.73, 82.88, 82.79, 82.94, 83.07, 82.99, 83.12, 83.05, 82.91, 82.84, 82.96, 83.10, 83.18, 83.06, 82.97, 82.85, 82.78, 82.90, 83.01, 82.93, 82.82, 82.74, 82.86, 82.95, 82.89, 82.80, 82.85],
-  chart5D: [86.90, 86.75, 86.30, 85.95, 86.10, 85.60, 85.20, 85.45, 85.02, 84.60, 83.40, 82.10, 81.60, 81.85, 81.30, 80.75, 80.40, 80.62, 80.95, 81.40, 82.30, 82.85, 82.40, 81.95, 81.55, 81.05, 81.70, 82.20, 82.60, 82.95, 83.30, 83.60, 83.95, 84.15, 83.85, 83.50, 83.20, 83.42, 83.10, 82.80, 82.55, 82.95, 83.15, 82.90, 82.70, 82.98, 83.05, 82.88, 82.75, 82.85],
 
   scoreboard: {
     windowLabel: "Last 30 trading days",
@@ -576,36 +574,6 @@ function CalendarScreen() {
   );
 }
 
-function priceChart(series) {
-  const w = 340, hgt = 170, padL = 8, padR = 52, padT = 12, padB = 14;
-  let min = Infinity, max = -Infinity;
-  for (let i = 0; i < series.length; i++) { if (series[i] < min) min = series[i]; if (series[i] > max) max = series[i]; }
-  const span = (max - min) || 1;
-  min -= span * 0.08; max += span * 0.08;
-  const X = function (i) { return padL + (w - padL - padR) * (i / (series.length - 1)); };
-  const Y = function (v) { return padT + (hgt - padT - padB) * (1 - (v - min) / (max - min)); };
-  let line = "";
-  for (let i = 0; i < series.length; i++) { line += (i === 0 ? "M " : " L ") + fmt(X(i), 1) + " " + fmt(Y(series[i]), 1); }
-  const area = line + " L " + fmt(X(series.length - 1), 1) + " " + hgt + " L " + padL + " " + hgt + " Z";
-  const last = series[series.length - 1];
-  // Three round-ish gridlines inside the visible span.
-  const grid = [];
-  const step = span > 3 ? 2 : span > 1.2 ? 1 : 0.5;
-  for (let g = Math.ceil(min / step) * step; g <= max; g += step) {
-    grid.push(h("g", { key: "g" + g },
-      h("line", { x1: padL, y1: Y(g), x2: w - padR + 6, y2: Y(g), stroke: T.line, strokeWidth: 1 }),
-      h("text", { x: w - padR + 10, y: Y(g) + 4, fill: T.inkSoft, fontFamily: font.mono, fontSize: 10.5 }, fmt(g, step < 1 ? 1 : 0))));
-  }
-  return h("svg", { width: "100%", viewBox: "0 0 " + w + " " + hgt, role: "img", "aria-label": "WTI price chart, last " + fmt(last) },
-    grid,
-    h("path", { d: area, fill: T.brass, opacity: 0.10 }),
-    h("path", { d: line, fill: "none", stroke: T.brass, strokeWidth: 2 }),
-    h("circle", { cx: X(series.length - 1), cy: Y(last), r: 3.2, fill: T.brass }),
-    h("rect", { x: w - padR + 4, y: Y(last) - 10, width: padR - 6, height: 19, rx: 4, fill: T.brass }),
-    h("text", { x: w - padR + 8, y: Y(last) + 4, fill: T.onAccent, fontFamily: font.mono, fontSize: 11, fontWeight: 700 }, fmt(last))
-  );
-}
-
 // Live chart. The one place the app loads something from outside: a
 // TradingView widget, which is built to be embedded and works in a
 // standalone PWA on iOS. The Trading Economics page the trader already
@@ -658,27 +626,6 @@ function LiveChartScreen() {
   );
 }
 
-function ChartsScreen(props) {
-  const range = props.range, setRange = props.setRange;
-  const series = range === "1D" ? D.chart1D : D.chart5D;
-  return h("div", null,
-    h(Card, null,
-      h("div", { style: { display: "flex", alignItems: "center", marginBottom: 10 } },
-        SectionLabel("WTI crude"),
-        h("div", { role: "group", "aria-label": "Chart range", style: { marginLeft: "auto", display: "flex", border: "1px solid " + T.line, borderRadius: 999, overflow: "hidden" } },
-          ["1D", "5D"].map(function (r) {
-            return h("button", { key: r, onClick: function () { setRange(r); }, "aria-pressed": range === r ? "true" : "false",
-              style: { cursor: "pointer", border: "none", background: range === r ? T.brassSoft : "transparent",
-                color: range === r ? T.brass : T.inkSoft, fontFamily: font.body, fontSize: 12, fontWeight: 800,
-                padding: "7px 14px", minHeight: 34 } }, r);
-          }))),
-      priceChart(series),
-      h("div", { style: { fontFamily: font.body, fontSize: 11.5, color: T.inkSoft, marginTop: 8, lineHeight: 1.5 } },
-        range === "1D" ? "Today's session, 5-minute closes." : "Five sessions, hourly closes. The Tuesday gap is why chart patterns alone don't predict oil: that move was a headline, not a formation.")
-    )
-  );
-}
-
 function ScoreboardScreen() {
   const S = D.scoreboard;
   const stat = function (label, value, color) {
@@ -721,6 +668,22 @@ function ScoreboardScreen() {
               h("div", { style: { fontFamily: font.body, fontSize: 10.5, fontWeight: 700, color: T.inkSoft, marginTop: 2 } }, "stood down")))
         : h("div", { style: { fontFamily: font.body, fontSize: 13, color: T.inkSoft, lineHeight: 1.6 } },
             "No calls resolved yet. The first one settles the morning after the pipeline's first run \u2014 see the note in Settings about why resolution is next-morning in this version."),
+      // How OFTEN it fired, versus how often the walk-forward said it would.
+      // A quiet month is a fact about the market meeting a fixed band, not a
+      // verdict on accuracy - and without this line the app looks broken when
+      // it is merely silent.
+      (S.liveFiredRate !== undefined && S.liveFiredRate !== null && S.firedRate) ? (function () {
+        const live = S.liveFiredRate, expected = S.firedRate;
+        const graded = (S.liveResolved || 0) + (S.liveStands || 0);
+        const quiet = live < expected * 0.6;
+        return h("div", { style: { fontFamily: font.body, fontSize: 11.5, color: T.inkSoft, lineHeight: 1.55, marginTop: 10, borderTop: "1px solid " + T.line, paddingTop: 10 } },
+          "Fired on ",
+          h("span", { style: { fontFamily: font.mono, fontWeight: 700, color: quiet ? T.amber : T.ink } }, Math.round(live * 100) + "%"),
+          " of the " + graded + " days graded so far, against ",
+          h("span", { style: { fontFamily: font.mono, fontWeight: 700, color: T.ink } }, Math.round(expected * 100) + "%"),
+          " in validation.",
+          quiet ? " Far quieter than expected: the signals have been sitting inside the stand-down band, which is the band meeting an unusual market rather than a verdict on accuracy. It is reported here, not acted on." : "");
+      })() : null,
       S.brier ? h("div", { style: { fontFamily: font.body, fontSize: 11.5, color: T.inkSoft, lineHeight: 1.55, marginTop: 10, borderTop: "1px solid " + T.line, paddingTop: 10 } },
         "Brier score ", h("span", { style: { fontFamily: font.mono, fontWeight: 700, color: T.ink } }, fmt(S.brier, 4)),
         " against a baseline of ", h("span", { style: { fontFamily: font.mono, fontWeight: 700, color: T.ink } }, fmt(S.brierBaseline, 4)),
@@ -1609,7 +1572,10 @@ function App() {
 
   // Charts was removed in v1C: with no intraday feed it was drawing months
   // of daily closes under a "today's session" caption. It comes back with
-  // a real feed in v1D. ChartsScreen stays in the file for that day.
+  // a real feed in v1D. The screen, its priceChart helper and the
+  // chart1D/chart5D payload fields are gone too: they held 30 and 90 DAILY
+  // closes under "today's session, 5-minute closes", which was simply untrue.
+  // The Chart tab (LiveChartScreen) is a different thing and stays.
   const TABS = [
     { id: "today", label: "Today" },
     { id: "trades", label: "Trades" },
