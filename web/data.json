@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-10-01T17:34:10+00:00",
-  "dataThrough": "2026-10-01",
+  "generatedAt": "2026-10-02T16:53:26+00:00",
+  "dataThrough": "2026-10-02",
   "isLive": true,
   "version": "v1C",
   "limitation": "The pipeline runs once, before the open, so a call is resolved the NEXT morning against the prior settlement rather than live at the 2:30 PM ET close. Prices are same-day closes from Yahoo Finance; the weekly EIA and CFTC series still publish with their normal lags.",
@@ -15,27 +15,27 @@
     },
     "leverage": 2.0
   },
-  "asOf": "Data through Thu Oct 01 \u00b7 locked 8:00 AM ET",
+  "asOf": "Data through Fri Oct 02 \u00b7 locked 8:00 AM ET",
   "spot": {
-    "last": 91.69,
-    "chg": 1.27,
-    "chgPct": 1.4
+    "last": 91.38,
+    "chg": -1.49,
+    "chgPct": -1.6
   },
   "prediction": {
-    "state": "none",
-    "probability": 0.5186,
-    "rawScore": 0.5328,
+    "state": "up",
+    "probability": 0.5495,
+    "rawScore": 0.5727,
     "nearEven": false,
-    "rangeLow": 89.09,
-    "rangeHigh": 94.29,
-    "rangePct": 2.83,
-    "etfRangePct": 5.67,
-    "instrument": null,
+    "rangeLow": 88.73,
+    "rangeHigh": 94.03,
+    "rangePct": 2.9,
+    "etfRangePct": 5.79,
+    "instrument": "HOU.TO",
     "drivers": [
       {
-        "label": "Distance from 20-day mean",
+        "label": "Brent-WTI spread change",
         "dir": "up",
-        "note": "-1.12 sigma from the 20-day mean. Pushing the lean up."
+        "note": "$-3.67. Pushing the lean up."
       },
       {
         "label": "Day of week",
@@ -48,18 +48,18 @@
         "note": "-1.0000. Pushing the lean down."
       },
       {
-        "label": "Brent-WTI spread",
+        "label": "Distance from 20-day mean",
         "dir": "up",
-        "note": "$+13.11. Pushing the lean up."
+        "note": "-0.65 sigma from the 20-day mean. Pushing the lean up."
       }
     ],
     "caution": "Resolution happens the next morning, not live at the 2:30 PM ET settlement: the pipeline runs once, before the open. Around scheduled releases the model's read applies to the session as a whole, not to the minutes after the print."
   },
   "briefing": {
-    "headline": "No edge today",
+    "headline": "Leaning up",
     "paragraphs": [
-      "WTI is softer over the past week, -3.1% across five sessions, with realized volatility elevated at 2.8% daily. The model is standing down today: the signals sit too close to even to be worth a call.",
-      "Brent trades $+13.11 against WTI. Managed-money positioning is unusually light, which leaves room for buying (the 7th percentile of the last three years).",
+      "WTI is softer over the past week, -1.1% across five sessions, with realized volatility elevated at 2.9% daily. The model leans to an up close today.",
+      "Brent trades $+9.44 against WTI. Managed-money positioning is unusually light, which leaves room for buying (the 7th percentile of the last three years).",
       "This briefing is assembled directly from the day's feature values \u2014 it says what the inputs say and nothing more. Narrative summaries of news arrive in v1D."
     ],
     "watching": [
@@ -69,22 +69,6 @@
     ]
   },
   "events": [
-    {
-      "day": "Fri",
-      "date": "Oct 02",
-      "time": "1:00 PM ET",
-      "name": "Baker Hughes rig count",
-      "impact": "low",
-      "note": "Weekly US drilling activity. Slow-moving supply signal."
-    },
-    {
-      "day": "Fri",
-      "date": "Oct 02",
-      "time": "3:30 PM ET",
-      "name": "CFTC Commitments of Traders",
-      "impact": "medium",
-      "note": "Managed-money positioning as of Tuesday. The crowding gauge."
-    },
     {
       "day": "Tue",
       "date": "Oct 06",
@@ -132,143 +116,37 @@
       "name": "EIA Weekly Petroleum Status",
       "impact": "high",
       "note": "The week's main event. The surprise against consensus moves price, not the level."
+    },
+    {
+      "day": "Fri",
+      "date": "Oct 16",
+      "time": "1:00 PM ET",
+      "name": "Baker Hughes rig count",
+      "impact": "low",
+      "note": "Weekly US drilling activity. Slow-moving supply signal."
+    },
+    {
+      "day": "Fri",
+      "date": "Oct 16",
+      "time": "3:30 PM ET",
+      "name": "CFTC Commitments of Traders",
+      "impact": "medium",
+      "note": "Managed-money positioning as of Tuesday. The crowding gauge."
     }
-  ],
-  "chart1D": [
-    87.06,
-    85.01,
-    82.36,
-    82.23,
-    83.53,
-    83.4,
-    85.76,
-    90.22,
-    91.01,
-    91.3,
-    91.48,
-    91.48,
-    93.03,
-    96.05,
-    102.48,
-    100.05,
-    101.39,
-    105.83,
-    102.43,
-    101.91,
-    100.3,
-    95.78,
-    94.59,
-    92.16,
-    94.61,
-    92.41,
-    92.6,
-    89.38,
-    90.42,
-    91.69
-  ],
-  "chart5D": [
-    92.16,
-    93.76,
-    96.02,
-    93.04,
-    90.54,
-    91.3,
-    88.2,
-    90.03,
-    87.71,
-    84.88,
-    80.75,
-    76.05,
-    76.79,
-    76.6,
-    76.6,
-    74.82,
-    73.21,
-    70.34,
-    71.92,
-    69.23,
-    70.75,
-    69.5,
-    68.58,
-    68.69,
-    68.69,
-    68.55,
-    70.44,
-    73.52,
-    72.08,
-    71.41,
-    78.14,
-    79.34,
-    79.6,
-    78.95,
-    82.49,
-    83.23,
-    84.91,
-    86.83,
-    92.19,
-    89.31,
-    82.61,
-    79.26,
-    84.46,
-    83.59,
-    84.67,
-    85.76,
-    80.34,
-    75.77,
-    75.22,
-    77.29,
-    78.18,
-    82.13,
-    83.2,
-    83.27,
-    81.25,
-    82.4,
-    84.5,
-    84.94,
-    85.83,
-    87.83,
-    87.06,
-    85.01,
-    82.36,
-    82.23,
-    83.53,
-    83.4,
-    85.76,
-    90.22,
-    91.01,
-    91.3,
-    91.48,
-    91.48,
-    93.03,
-    96.05,
-    102.48,
-    100.05,
-    101.39,
-    105.83,
-    102.43,
-    101.91,
-    100.3,
-    95.78,
-    94.59,
-    92.16,
-    94.61,
-    92.41,
-    92.6,
-    89.38,
-    90.42,
-    91.69
   ],
   "scoreboard": {
     "windowLabel": "Walk-forward validation (out of sample)",
-    "fired": 1603,
+    "fired": 1604,
     "standDowns": 1981,
-    "hits": 1,
-    "accuracy": 0.5434,
-    "baseline": 0.5059,
+    "firedRate": 0.4474,
+    "accuracy": 0.543,
+    "baseline": 0.5057,
     "baselineLabel": "always guess up",
     "liveAccuracy": 0.25,
     "liveResolved": 4,
-    "liveStands": 20,
+    "liveStands": 21,
+    "liveHits": 1,
+    "liveFiredRate": 0.16,
     "brier": 0.2513,
     "brierBaseline": 0.25,
     "beatsBaseline": true,
@@ -299,9 +177,9 @@
       },
       {
         "band": "55-60%",
-        "n": 234,
-        "predicted": 0.5651354371552264,
-        "actual": 0.5042735042735043
+        "n": 235,
+        "predicted": 0.5650738429245724,
+        "actual": 0.502127659574468
       },
       {
         "band": "60-101%",
@@ -312,14 +190,20 @@
     ],
     "calibrationNote": "Of days the model put 60-101% on a direction, 58% resolved that way against 75% predicted (71 days). Closer together is better.",
     "scoredCalibrated": true,
-    "scoredDays": 3374,
-    "outOfSampleDays": 3584,
+    "scoredDays": 3375,
+    "outOfSampleDays": 3585,
     "log": [
+      {
+        "date": "2026-10-05",
+        "call": "up",
+        "prob": 0.549,
+        "outcome": "open"
+      },
       {
         "date": "2026-10-02",
         "call": "none",
         "prob": 0.519,
-        "outcome": "open"
+        "outcome": "stand"
       },
       {
         "date": "2026-10-01",
@@ -470,7 +354,7 @@
   "sources": [
     {
       "name": "Yahoo Finance \u2014 WTI (CL=F), Brent, dollar index, natural gas",
-      "status": "Live \u00b7 through 2026-10-01"
+      "status": "Live \u00b7 through 2026-10-02"
     },
     {
       "name": "EIA \u2014 crude and Cushing stocks",
@@ -496,7 +380,7 @@
   "model": {
     "kind": "logistic regression (L2, standardized)",
     "features": 24,
-    "trainedThrough": "2026-10-01",
+    "trainedThrough": "2026-10-02",
     "standDownBand": [
       0.45,
       0.55
