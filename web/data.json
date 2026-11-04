@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-11-03T18:42:53+00:00",
-  "dataThrough": "2026-11-03",
+  "generatedAt": "2026-11-04T18:55:46+00:00",
+  "dataThrough": "2026-11-04",
   "isLive": true,
   "version": "v1C",
   "limitation": "The pipeline runs once, before the open, so a call is resolved the NEXT morning against the prior settlement rather than live at the 2:30 PM ET close. Prices are same-day closes from Yahoo Finance; the weekly EIA and CFTC series still publish with their normal lags.",
@@ -15,32 +15,27 @@
     },
     "leverage": 2.0
   },
-  "asOf": "Data through Tue Nov 03 \u00b7 locked 8:00 AM ET",
+  "asOf": "Data through Wed Nov 04 \u00b7 locked 8:00 AM ET",
   "spot": {
-    "last": 96.03,
-    "chg": -0.43,
-    "chgPct": -0.45
+    "last": 88.22,
+    "chg": -7.87,
+    "chgPct": -8.19
   },
   "prediction": {
     "state": "up",
-    "probability": 0.5487,
-    "rawScore": 0.6349,
+    "probability": 0.5475,
+    "rawScore": 0.5745,
     "nearEven": false,
-    "rangeLow": 93.24,
-    "rangeHigh": 98.82,
+    "rangeLow": 85.65,
+    "rangeHigh": 90.79,
     "rangePct": 2.91,
-    "etfRangePct": 5.81,
+    "etfRangePct": 5.82,
     "instrument": "HOU.TO",
     "drivers": [
       {
-        "label": "Brent-WTI spread change",
-        "dir": "up",
-        "note": "$-5.21. Pushing the lean up."
-      },
-      {
         "label": "Day of week",
-        "dir": "down",
-        "note": "+1.0000. Pushing the lean down."
+        "dir": "up",
+        "note": "+0.0000. Pushing the lean up."
       },
       {
         "label": "Seasonality",
@@ -48,9 +43,14 @@
         "note": "-0.8660. Pushing the lean down."
       },
       {
-        "label": "Yesterday's move",
+        "label": "Brent-WTI spread change",
         "dir": "up",
-        "note": "-7.36% over the window. Pushing the lean up."
+        "note": "$-0.80. Pushing the lean up."
+      },
+      {
+        "label": "Distance from 20-day mean",
+        "dir": "up",
+        "note": "-0.44 sigma from the 20-day mean. Pushing the lean up."
       }
     ],
     "caution": "Resolution happens the next morning, not live at the 2:30 PM ET settlement: the pipeline runs once, before the open. Around scheduled releases the model's read applies to the session as a whole, not to the minutes after the print."
@@ -58,8 +58,8 @@
   "briefing": {
     "headline": "Leaning up",
     "paragraphs": [
-      "WTI is softer over the past week, -3.9% across five sessions, with realized volatility elevated at 2.9% daily. The model leans to an up close today.",
-      "Brent trades $+8.31 against WTI. Managed-money positioning is unusually light, which leaves room for buying (the 6th percentile of the last three years).",
+      "WTI is softer over the past week, -14.2% across five sessions, with realized volatility elevated at 2.9% daily. The model leans to an up close today.",
+      "Brent trades $+7.51 against WTI. Managed-money positioning is unusually light, which leaves room for buying (the 6th percentile of the last three years).",
       "This briefing is assembled directly from the day's feature values \u2014 it says what the inputs say and nothing more. Narrative summaries of news arrive in v1D."
     ],
     "watching": [
@@ -69,14 +69,6 @@
     ]
   },
   "events": [
-    {
-      "day": "Wed",
-      "date": "Nov 04",
-      "time": "10:30 AM ET",
-      "name": "EIA Weekly Petroleum Status",
-      "impact": "high",
-      "note": "The week's main event. The surprise against consensus moves price, not the level."
-    },
     {
       "day": "Fri",
       "date": "Nov 06",
@@ -132,48 +124,56 @@
       "name": "API weekly inventories",
       "impact": "medium",
       "note": "Industry preview of Wednesday's EIA report. After-hours mover."
+    },
+    {
+      "day": "Wed",
+      "date": "Nov 18",
+      "time": "10:30 AM ET",
+      "name": "EIA Weekly Petroleum Status",
+      "impact": "high",
+      "note": "The week's main event. The surprise against consensus moves price, not the level."
     }
   ],
   "scoreboard": {
     "windowLabel": "Walk-forward validation (out of sample)",
-    "fired": 1611,
+    "fired": 1612,
     "standDowns": 1996,
-    "firedRate": 0.4466,
-    "accuracy": 0.5425,
-    "baseline": 0.5062,
+    "firedRate": 0.4468,
+    "accuracy": 0.5422,
+    "baseline": 0.5061,
     "baselineLabel": "always guess up",
-    "liveAccuracy": 0.3636,
-    "liveResolved": 11,
+    "liveAccuracy": 0.3333,
+    "liveResolved": 12,
     "liveStands": 36,
     "liveHits": 4,
-    "liveFiredRate": 0.234,
-    "brier": 0.2513,
+    "liveFiredRate": 0.25,
+    "brier": 0.2514,
     "brierBaseline": 0.25,
     "beatsBaseline": true,
     "calibration": [
       {
         "band": "0-40%",
         "n": 326,
-        "predicted": 0.3707789001151551,
+        "predicted": 0.3707789001151549,
         "actual": 0.44785276073619634
       },
       {
         "band": "40-45%",
         "n": 351,
-        "predicted": 0.42264712169985585,
+        "predicted": 0.4226471216998557,
         "actual": 0.4586894586894587
       },
       {
         "band": "45-50%",
         "n": 283,
-        "predicted": 0.4780803805421537,
+        "predicted": 0.4780803805421549,
         "actual": 0.5265017667844523
       },
       {
         "band": "50-55%",
-        "n": 2130,
-        "predicted": 0.5251478365110485,
-        "actual": 0.5197183098591549
+        "n": 2131,
+        "predicted": 0.5251592408812689,
+        "actual": 0.5194744251525105
       },
       {
         "band": "55-60%",
@@ -184,20 +184,26 @@
       {
         "band": "60-101%",
         "n": 71,
-        "predicted": 0.7480943747032552,
+        "predicted": 0.7480943747032559,
         "actual": 0.5774647887323944
       }
     ],
     "calibrationNote": "Of days the model put 60-101% on a direction, 58% resolved that way against 75% predicted (71 days). Closer together is better.",
     "scoredCalibrated": true,
-    "scoredDays": 3397,
-    "outOfSampleDays": 3607,
+    "scoredDays": 3398,
+    "outOfSampleDays": 3608,
     "log": [
+      {
+        "date": "2026-11-05",
+        "call": "up",
+        "prob": 0.548,
+        "outcome": "open"
+      },
       {
         "date": "2026-11-04",
         "call": "up",
         "prob": 0.549,
-        "outcome": "open"
+        "outcome": "miss"
       },
       {
         "date": "2026-11-03",
@@ -366,19 +372,13 @@
         "call": "none",
         "prob": 0.504,
         "outcome": "stand"
-      },
-      {
-        "date": "2026-09-24",
-        "call": "none",
-        "prob": 0.519,
-        "outcome": "stand"
       }
     ]
   },
   "sources": [
     {
       "name": "Yahoo Finance \u2014 WTI (CL=F), Brent, dollar index, natural gas",
-      "status": "Live \u00b7 through 2026-11-03"
+      "status": "Live \u00b7 through 2026-11-04"
     },
     {
       "name": "EIA \u2014 crude and Cushing stocks",
@@ -404,7 +404,7 @@
   "model": {
     "kind": "logistic regression (L2, standardized)",
     "features": 24,
-    "trainedThrough": "2026-11-03",
+    "trainedThrough": "2026-11-04",
     "standDownBand": [
       0.45,
       0.55
